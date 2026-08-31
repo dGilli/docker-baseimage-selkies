@@ -1,83 +1,70 @@
 # Active Context
 
-**Last Updated**: 2026-08-31 | **State Machine**: `M2 GPU LIVE-VERIFIED — AWAITING APPROVAL TO CODIFY` (**GPU M0 passed, M1 committed with this MB update, M2 live user verification PASSED; F60 root cause = `startwm.sh:4-8` forces Mesa zink on GPU nodes while `DISABLE_ZINK=false`; live `DISABLE_ZINK=true` + dynamic resolution removed the zink warning and GNOME/Settings/Firefox work in the browser. The live cluster env is still a debug delta and is not yet codified in the image/template. Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 DEFERRED**, pattern fixed: port official selkies boot-time userspace driver install (F58 + ADR). Next after M0–M2: R1 step 3 (SLU catalog), phase 2)
+**Last Updated**: 2026-08-31 | **State Machine**: `M2 GPU CLEAN-PATH VERIFIED — AWAITING COMMIT APPROVAL` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean committed-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 DEFERRED**, pattern fixed: port official selkies boot-time userspace driver install (F58 + ADR). Next after M0–M2: R1 step 3 (SLU catalog), phase 2)
 
-## GPU M2 live debug state (2026-08-31)
+## GPU M2 clean-path state (2026-08-31)
 ### User directives
 - M0–M2 approved; do **not** pin `pixelflux` unless required.
 - R1 step 3 removed from active todos.
 - Openbox is **not** a valid GPU alternative; the goal is to get **GNOME working on GPU nodes**.
-- Do not move on until the GNOME/GPU issue is resolved.
+- User approved continuing the post-live-verification troubleshooting/codification step on 2026-08-31.
 
-### Completed / blocked
+### Completed
 - **M0 passed**: free-scheduling `nvidia.com/gpu: 1` probe landed on UCSC GTX 1080 Ti / driver 580.159.04; `nvidia-smi`, `/proc/driver/nvidia/version`, HTTP 200, 0 restarts, and pixelflux NVENC all verified. Probe torn down.
-- **M1 implemented but uncommitted**: `deploy/nrp/apply-nrp-e2e.sh --gpu`, `--accept-nrp-utilization`, interactive NRP >40% gate, dry-run behavior, and anchored rendered-manifest cross-check. Template docs updated. No pixelflux pin.
+- **M1 codified**: `deploy/nrp/apply-nrp-e2e.sh --gpu` now renders GPU resources, `DISABLE_ZINK=true`, and a `Recreate` deployment strategy. `--accept-nrp-utilization`, interactive NRP >40% gate, dry-run behavior, and rendered-manifest cross-checks are present. No pixelflux pin.
 - **M2 live user verification passed (2026-08-31)**: after `DISABLE_ZINK=true` and removal of fixed `SELKIES_MANUAL_WIDTH/HEIGHT`, the user confirmed the desktop works like the previously good CPU state: resolution follows the browser, Firefox and Settings launch/display properly and are usable.
-- **M2 remains open for codification**: the verified state exists as live `kubectl set env` on the e2e deployment; it is not yet in the committed image/template path.
+- **Minimal-env reduction completed**: the full debug env was reduced stepwise. The smallest verified GPU GNOME + Firefox + dynamic-resolution + NVENC state is only deployment env `DISABLE_ZINK=true`; image defaults provide `NVIDIA_DRIVER_CAPABILITIES=all`, `LIBGL_ALWAYS_SOFTWARE=1`, `GALLIUM_DRIVER=llvmpipe`, `MESA_GL_VERSION_OVERRIDE=4.5`, and `DISABLE_DRI3=true`.
+- **Clean M2 rerun from committed deploy path passed**: deleted the e2e deployment/service/ingress, ran `./deploy/nrp/apply-nrp-e2e.sh --gpu --accept-nrp-utilization -n slu-researchtechnologies-dgilli`, and re-verified GNOME, Settings, Firefox, dynamic xrandr resize, and NVENC on the fresh pod.
 
-### Root cause candidate (F60)
+### Root cause (F60, codified for GPU deploys)
 `root/defaults/startwm.sh:4-8` forces zink when `nvidia-smi` exists, `/dev/dri` is non-empty, and `DISABLE_ZINK=false`:
 ```bash
 export MESA_LOADER_DRIVER_OVERRIDE=zink
 export GALLIUM_DRIVER=zink
 ```
-`Dockerfile.rhel9:191` sets `DISABLE_ZINK=false`, so GPU nodes push GNOME/mutter into Mesa zink. Live logs showed `MESA: warning: zink: PERF WARNING! > 100 copy boxes detected`. Setting `DISABLE_ZINK=true` live removed the zink warning and allowed `gnome-shell --x11 --sm-disable` to start cleanly. The user verified this live state in the browser on 2026-08-31. The remaining work is to reduce/codify the fix and re-run M2 from the committed deploy path.
+`Dockerfile.rhel9:191` sets `DISABLE_ZINK=false`, so GPU nodes push GNOME/mutter into Mesa zink unless the deployment overrides it. The committed GPU deploy path now sets `DISABLE_ZINK=true` (F64). A future image-level fix could change the default or make the `startwm.sh` hook respect the llvmpipe image intent, but that is not required for the current M2 deploy path.
 
-### Current live debug deployment
+### Current clean-path deployment
 Namespace: `slu-researchtechnologies-dgilli`
 Deployment: `slu-rhel9-e2e`
-Last user-verified pod: `slu-rhel9-e2e-864c688c9-z5b8k`
+Latest clean-path pod: `slu-rhel9-e2e-545d4555d5-zbfgb`
 Node: `k8s-chase-ci-10.calit2.optiputer.net`
 GPU: RTX 2080 Ti, driver `595.71.05`
 
-Live env overrides currently on the deployment (debug only, **not** in the committed template/image):
+Deployment env rendered by the committed path:
 ```text
-MOZ_DISABLE_CONTENT_SANDBOX=1
-MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1
-MOZ_DISABLE_RDD_SANDBOX=1
-MOZ_DISABLE_UTILITY_SANDBOX=1
-MOZ_DISABLE_GMP_SANDBOX=1
-MOZ_WEBRENDER=0
-MOZ_X11_EGL=0
-MOZ_LAYERS_ALLOW_SOFTWARE_GL=1
-__GLX_VENDOR_LIBRARY_NAME=mesa
-EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
-VULKAN_ICD_FILENAMES=/dev/null
-MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
-EGL_PLATFORM=x11
-MESA_VK_DISABLE=1
+TZ=UTC
+USERNAME=abc
+PASSWORD=<secretKeyRef selkies-password/password>
 DISABLE_ZINK=true
+```
+Image-provided defaults relevant to GPU GNOME:
+```text
+NVIDIA_DRIVER_CAPABILITIES=all
+DISABLE_DRI3=true
+LIBGL_ALWAYS_SOFTWARE=1
+GALLIUM_DRIVER=llvmpipe
+MESA_GL_VERSION_OVERRIDE=4.5
 ```
 `DESKTOP` is unset, so the image default GNOME branch is active. `SELKIES_MANUAL_WIDTH` and `SELKIES_MANUAL_HEIGHT` are intentionally unset for dynamic resolution.
 
-Dynamic resolution state (user-verified 2026-08-31):
+Dynamic resolution state (clean-path verified 2026-08-31):
 - Xvfb: `-screen 0 15360x8640x24`
 - boot xrandr: `1024x768`
 - xrandr maximum: `15360x8640`
 - selkies settings: `is_manual_resolution_mode=false`, `manual_width=0`, `manual_height=0`
-- client browser resize drives the selkies/xrandr path; the user confirmed the desktop resolution follows the browser and apps remain usable.
+- in-pod selkies protocol resize from `1024x768` to `1920x1080` worked; `gnome-shell` stayed up; NVENC re-initialized at `1920x1080`.
 
-### Repo state being committed
-- `deploy/nrp/apply-nrp-e2e.sh` — M1 `--gpu`, `--accept-nrp-utilization`, interactive NRP >40% gate, dry-run support, and rendered-manifest cross-check.
-- `deploy/nrp/selkies-rhel9.yaml.template` — GPU docs for the `--gpu` render path.
-- `memory-bank/...` — M2 live-verification state, F59–F63, progress/README/ops-log/toc updates.
-- The live GNOME/GPU env delta is intentionally **not** codified yet; the next approved step is minimal-env A/B, codification, and a clean M2 rerun from the committed deploy path.
+### Repo state pending commit
+- `deploy/nrp/apply-nrp-e2e.sh` — M1/M2 GPU path: `--gpu`, `--accept-nrp-utilization`, NRP >40% gate, dry-run support, `DISABLE_ZINK=true` render, `Recreate` strategy render, and rendered-manifest cross-checks.
+- `deploy/nrp/selkies-rhel9.yaml.template` — GPU env/strategy placeholders and docs.
+- `memory-bank/...` — M2 clean-path state, F64, progress/README/ops-log/toc/decisions/systemPatterns updates.
+- No image rebuild is part of this M2 fix; the current private image remains `docker.io/dgilli/selkies-rhel9:v4-llvmpipe`.
 
-### Next troubleshooting matrix (awaiting user approval to continue)
-1. Reduce the live env delta to the smallest necessary set:
-   - start from dynamic resolution + `DISABLE_ZINK=true` only.
-   - add back Mesa/EGL pins only if GNOME regresses.
-   - add back `MOZ_*` pins only if Firefox regresses.
-   - do **not** reintroduce fixed `SELKIES_MANUAL_WIDTH/HEIGHT` except as a diagnostic.
-2. Decide where to codify the verified behavior:
-   - image default `DISABLE_ZINK=true` in `Dockerfile.rhel9`, and/or
-   - GPU-template env in `deploy/nrp/selkies-rhel9.yaml.template` + `apply-nrp-e2e.sh --gpu`.
-3. Re-run clean M2 from the committed path, not from live `kubectl set env`.
-4. If any regression appears:
-   - A/B one variable at a time.
-   - Capture `gnome-shell`, `mutter`, `cogl`, `mesa`, and Firefox logs after each user action.
-   - Do **not** accept openbox as the fix.
+### Next after commit approval
+1. Commit the deploy-path + memory-bank changes on `rhel9` (local commit; do not push unless asked).
+2. Optional user browser pass on the fresh clean-path pod: `https://slu-rhel9-e2e.nrp-nautilus.io`, login `abc` + password from secret `selkies-password`.
+3. M2 can be marked fully closed after the commit + user sign-off. M3 remains deferred.
 
 ## Git Reality (changed 2026-08-27)
 - `origin` = **user's fork** `git@github.com:dGilli/docker-baseimage-selkies.git` (commits/pushes allowed)

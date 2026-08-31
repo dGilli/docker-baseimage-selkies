@@ -49,11 +49,14 @@
 #              (R1) needs no seccomp override (F55).
 #   resources: limits == requests (Guaranteed QoS per NRP policy). Reference
 #              defaults: 2 CPU / 4Gi; NRP interactive cap 16 CPU / 32Gi.
-#   GPU:       @@GPU_*@@ placeholders are filled by
-#              deploy/nrp/apply-nrp-e2e.sh --gpu as nvidia.com/gpu: "1".
+#   GPU:       the GPU resource, env, and strategy placeholders are filled by
+#              deploy/nrp/apply-nrp-e2e.sh --gpu as nvidia.com/gpu: "1",
+#              DISABLE_ZINK=true, and a Recreate update strategy.
 #              This enables pixelflux NVENC encoding while desktop rendering
-#              remains Xvfb + llvmpipe. GPU desktop rendering is the separate
-#              deferred M3 work item (F58).
+#              remains Xvfb + llvmpipe. DISABLE_ZINK=true is required because
+#              root/defaults/startwm.sh:4-8 otherwise forces Mesa zink on any
+#              node exposing nvidia-smi + /dev/dri (F60). GPU desktop rendering
+#              is the separate deferred M3 work item (F58).
 # =============================================================================
 apiVersion: apps/v1
 kind: Deployment
@@ -66,6 +69,7 @@ metadata:
     nrp-workspace-os: rhel9
 spec:
   replicas: 1
+@@STRATEGY@@
   selector:
     matchLabels:
       app: @@NAME@@
@@ -93,6 +97,7 @@ spec:
             secretKeyRef:
               name: @@PASSWORD_SECRET@@
               key: @@PASSWORD_KEY@@
+@@GPU_ENV@@
         stdin: true
         tty: true
         ports:

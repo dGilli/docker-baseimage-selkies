@@ -31,7 +31,10 @@
 #           dns=8.8.8.8/8.8.4.4  cpu=2  memory=4Gi  secrets per step 2/3
 #
 # GPU:
-#   --gpu requests nvidia.com/gpu: "1" (free scheduling, no node targeting).
+#   --gpu requests nvidia.com/gpu: "1" (free scheduling, no node targeting),
+#   sets DISABLE_ZINK=true so the in-image startwm.sh hook does not force Mesa
+#   zink on GPU nodes (F60), and renders a Recreate update strategy so a
+#   single-GPU E2E update does not need a second GPU for surge.
 #   NRP monitors GPU utilization; sustained >40% is expected. Interactive runs
 #   prompt for confirmation unless --accept-nrp-utilization is supplied.
 #
@@ -202,9 +205,13 @@ esac
 RENDERED="$(mktemp)" ; [[ $DRY -eq 1 ]] || TMP_FILES+=("$RENDERED")
 GPU_LIMITS=""
 GPU_REQUESTS=""
+GPU_ENV=""
+STRATEGY=""
 if [[ $GPU -eq 1 ]]; then
   GPU_LIMITS=$'            nvidia.com/gpu: "1"'
   GPU_REQUESTS=$'            nvidia.com/gpu: "1"'
+  GPU_ENV='        - name: DISABLE_ZINK\n          value: "true"'
+  STRATEGY='  strategy:\n    type: Recreate'
 fi
 # (values must not contain the sed delimiter '|' — none of the defaults do)
 sed -e "s|@@NAME@@|$NAME|g" \
@@ -213,6 +220,8 @@ sed -e "s|@@NAME@@|$NAME|g" \
     -e "s|@@MEMORY@@|$MEMORY|g" \
     -e "s|@@GPU_LIMITS@@|$GPU_LIMITS|g" \
     -e "s|@@GPU_REQUESTS@@|$GPU_REQUESTS|g" \
+    -e "s|@@GPU_ENV@@|$GPU_ENV|g" \
+    -e "s|@@STRATEGY@@|$STRATEGY|g" \
     -e "s|@@PASSWORD_SECRET@@|$PSECRET|g" \
     -e "s|@@PASSWORD_KEY@@|$PKEY|g" \
     -e "s|@@DNS_PRIMARY@@|$DNS1|g" \
@@ -224,14 +233,31 @@ if grep -qE '@@[A-Z_]+@@' "$RENDERED"; then
   die "unrendered placeholders remain in manifest"
 fi
 GPU_RESOURCE_LINE_RE='^            nvidia\.com/gpu: "1"$'
+GPU_ENV_NAME_RE='^        - name: DISABLE_ZINK$'
+GPU_ENV_VALUE_RE='^          value: "true"$'
+GPU_STRATEGY_TYPE_RE='^    type: Recreate$'
 if [[ $GPU -eq 1 ]]; then
   if ! grep -qE "$GPU_RESOURCE_LINE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest is missing the nvidia GPU limit/request line"
   fi
+  if ! grep -qE "$GPU_ENV_NAME_RE" "$RENDERED" || ! grep -qE "$GPU_ENV_VALUE_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest is missing DISABLE_ZINK=true"
+  fi
+  if ! grep -qE "$GPU_STRATEGY_TYPE_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest is missing the Recreate GPU update strategy"
+  fi
   log "GPU cross-check passed: nvidia GPU limit/request line present"
+  log "GPU cross-check passed: DISABLE_ZINK=true present"
+  log "GPU cross-check passed: Recreate GPU update strategy present"
 else
   if grep -qE "$GPU_RESOURCE_LINE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest contains an nvidia GPU resource line without --gpu"
+  fi
+  if grep -qE "$GPU_ENV_NAME_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest contains DISABLE_ZINK without --gpu"
+  fi
+  if grep -qE "$GPU_STRATEGY_TYPE_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest contains a Recreate strategy without --gpu"
   fi
   log "GPU cross-check passed: no nvidia GPU resource line rendered"
 fi
