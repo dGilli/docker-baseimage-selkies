@@ -28,7 +28,8 @@ init-config → init-selkies (deps: init-os-end) → init-nginx (deps: init-selk
 Services: `svc-dbus`, `svc-xorg`, `svc-nginx`, `svc-pulseaudio`, `svc-de` (deps: svc-nginx, svc-xorg, legacy-cont-init), `svc-selkies` (deps: svc-dbus, svc-nginx, svc-pulseaudio, svc-xorg), `svc-watchdog`, `svc-docker`, `svc-xsettingsd`.
 
 Key scripts:
-- `svc-de/run` — **dual-mode branch**: `PIXELFLUX_WAYLAND==true` → wait for wayland socket, run `/defaults/startwm_wayland.sh` (labwc+smithay); else wait for X (`xset q`), set xrandr resolution, run `/defaults/startwm.sh` (openbox). `root/etc/s6-overlay/s6-rc.d/svc-de/run:4-100`
+- `svc-de/run` — **dual-mode branch**: `PIXELFLUX_WAYLAND==true` → wait for wayland socket, run `/defaults/startwm_wayland.sh` (labwc+smithay); else wait for X (`xset q`), set xrandr resolution, run `/defaults/startwm.sh`. On RHEL9, `startwm.sh` first runs the NVIDIA/zink hook (`root/defaults/startwm.sh:4-8`) and then branches to GNOME unless `DESKTOP=openbox` (`root/defaults/startwm.sh:15-59`). The zink hook is the GPU-desktop hazard recorded in F60: with `DISABLE_ZINK=false` (image default), any node exposing `nvidia-smi` + `/dev/dri` forces `GALLIUM_DRIVER=zink` / `MESA_LOADER_DRIVER_OVERRIDE=zink` into the GNOME session.
+- `svc-xorg/run` — **resolution mode**: `SELKIES_MANUAL_WIDTH/HEIGHT`, when set, lock Xvfb to that size (`root/etc/s6-overlay/s6-rc.d/svc-xorg/run:23-34`) and also force selkies manual-resolution mode (F63). When unset, Xvfb uses `MAX_RES` (default `15360x8640`), boot xrandr is `1024x768`, and the browser client drives dynamic resizes.
 - `init-nginx/run` — generates self-signed cert in `/config/ssl`, seds `/defaults/default.conf` (ports, subfolder, basic auth `.htpasswd`, dashboard copy, PWA manifest).
 - `svc-selkies/run` — loads pulseaudio null sinks, optional `DEV_MODE` (pixelflux/core), then `exec selkies --addr=localhost --mode=websockets`.
 

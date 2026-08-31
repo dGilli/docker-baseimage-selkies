@@ -1,7 +1,7 @@
 # Memory Bank — Table of Contents
 
 **Project**: `slu-docker-rhel-selkies` (SLU fork of linuxserver/docker-baseimage-selkies)
-**MB Version**: 2026-08 | **Last Updated**: 2026-08-27
+**MB Version**: 2026-08 | **Last Updated**: 2026-08-31
 
 ## Core Files
 | File | Purpose | Load When |
@@ -18,7 +18,7 @@
 |------|---------|-----------|
 | [projectRules.md](./projectRules.md) | Coding standards, generated-file rules | When uncertain |
 | [decisions.md](./decisions.md) | ADRs | Arch decisions |
-| [findings.md](./findings.md) | Cross-cutting findings registry (F01–F58, evidence-linked) | RHEL9 work, debugging, GPU/NRP |
+| [findings.md](./findings.md) | Cross-cutting findings registry (F01–F63, evidence-linked) | RHEL9 work, debugging, GPU/NRP |
 | [quick-start.md](./quick-start.md) | Common commands, build/run/test | Fast track |
 | [build-deployment.md](./build-deployment.md) | Build/deploy/Jenkins flow | Build work |
 | [testing-patterns.md](./testing-patterns.md) | QA strategy, CI env vars | Test work |

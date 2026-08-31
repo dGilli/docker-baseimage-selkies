@@ -49,8 +49,11 @@
 #              (R1) needs no seccomp override (F55).
 #   resources: limits == requests (Guaranteed QoS per NRP policy). Reference
 #              defaults: 2 CPU / 4Gi; NRP interactive cap 16 CPU / 32Gi.
-#   GPU:       @@GPU_*@@ placeholders kept for phase 2 (real Xorg path, F29) —
-#              leave as no --gpu equivalent (empty) until then.
+#   GPU:       @@GPU_*@@ placeholders are filled by
+#              deploy/nrp/apply-nrp-e2e.sh --gpu as nvidia.com/gpu: "1".
+#              This enables pixelflux NVENC encoding while desktop rendering
+#              remains Xvfb + llvmpipe. GPU desktop rendering is the separate
+#              deferred M3 work item (F58).
 # =============================================================================
 apiVersion: apps/v1
 kind: Deployment

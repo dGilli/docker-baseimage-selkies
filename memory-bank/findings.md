@@ -5,7 +5,7 @@
 
 **Status legend**: ✅ resolved | ⚠️ accepted degradation | 🚧 hurdle/constraint (workaround documented) | 🔓 open (needs decision or verification)
 
-**Last updated**: 2026-08-27
+**Last updated**: 2026-08-31
 
 ---
 
@@ -287,8 +287,114 @@ Production NRP consumes desktop workspaces via `@@PLACEHOLDER@@` templates + a f
 **SLU nautilus GPU inventory (8 Ready nodes, ALL driver 595.71.05 / CUDA 13.2 — read via permitted `kubectl get nodes -o json`; node GET is 403, LIST works)**: gpu01–06 = **NVIDIA L4 × 16/node** (generic pool; Ada class → **NVENC-capable**); gpu07–08 = **A100 80GB PCIe × 4/node** (gated `nvidia.com/a100`; **A100 has NO NVENC/NVDEC** — compute only); ext-gpu01 = NotReady. Fleet-wide driver spread 580→610 (595 dominant).
 **pixelflux (our image's capture+encode engine)**: **v2.0.0 in c8** — auto-resolved because selkies 348bc4f's `pyproject.toml` declares a **FLOATING bare `"pixelflux"` dep** (upstream el9 had to pin `==1.4.7` in `6e6c321` when flows diverged → **pin ours, build hardening**). Backends: software x264 (bundled; proven on our CPU nodes), **NVIDIA NVENC (driver libs runtime-loaded — "no compile-time NVIDIA packages"; documented verified on drivers 570–595 = our 595.71.05 ✓)**, VA-API (irrelevant — NVIDIA-only fleet). X11 capture = XShm (CPU readback; zero-copy DMA-BUF is the Wayland backend only) → NVENC removes encode CPU, not capture. selkies 348bc4f forwards the knobs — verified in-image: `SELKIES_AUTO_GPU`/`AUTO_GPU` → `cs.auto_gpu` + `encode_node_index=-2` (`selkies.py:3243-3246`), `SELKIES_USE_CPU` → `cs.use_cpu` (`media_pipeline.py:281-284`), JPEG encoder forces CPU (`selkies.py:1457`). **Default (no envs) = auto-detect → M0–M2 need ZERO image changes**: L4/RTX landing → NVENC; A100 → x264 fallback (M0-verified behavior, unreachable via generic request anyway); CPU node → x264 (proven).
 **Driver-mismatch solution for M3 (user decision 2026-08-31: "solve it just like the selkies image does with an entrypoint")**: port the official `selkies-project/docker-selkies-glx-desktop` pattern (public repo, pushed 2026-08-10; glx+egl kept in sync): per-pod at boot → detect node driver version (`/proc/driver/nvidia/version` primary — kernel-provided via toolkit; `nvidia-smi --version` fallback) → download exact `NVIDIA-Linux-x86_64-<ver>.run` from `international.download.nvidia.com` (consumer path, fallback `/tesla/<ver>/` datacenter path — NVIDIA archives every version forever, so 580/595/610/**future majors** all work from one image) → `nvidia-installer --silent --no-kernel-module --no-nouveau-check --no-nvidia-modprobe --no-systemd --no-rpms --no-backup --no-check-for-alternate-installs` (userspace-only; `--no-rpms` = raw files, distro-agnostic, no dnf) → `/usr/local/nvidia/{bin,lib,lib64}` + `PATH`/`LD_LIBRARY_PATH` + manual OpenCL/Vulkan/EGL ICD jsons + `NVIDIA_VISIBLE_DEVICES=all` + `__GL_SYNC_TO_VBLANK=0` (headless) → `nvidia-xconfig` headless `xorg.conf` (busid from `nvidia-smi`, `--allow-empty-initial-configuration`, `AllowExternalGpus`, ModeValidation checks off) → real Xorg + nvidia DDX (always node-matched). Guard: skip install if toolkit already provides userspace (`command -v nvidia-xconfig`). **Drop in port**: `--install-compat32-libs` (no i386), `elFarto/nvidia-vaapi-driver` + gstreamer NVENC path (pixelflux uses `libnvidia-encode` directly), fakeroot (we're rootful, F28). **Keep failure fallback**: detect/download/install fail → Xvfb + llvmpipe (today's guaranteed path) — mismatch is gone by construction; download failure degrades instead of crash-looping. **Costs**: +2–5 min GPU-pod startup (per-pod download; `/config` ephemeral → no cross-pod cache), runtime egress to `download.nvidia.com`, GPU wait window ~600 s in the apply script. s6 integration: the install is a pre-`svc-xorg` step (our "entrypoint" = s6-overlay init).
-**Status**: 📋 planned — **M0–M2 approved as the next milestone (no image changes)**; **M3 deferred** with pattern fixed (ADR in `decisions.md`).
+**Status**: 🚧 executed/live-verified — **M0 passed**, **M1 committed**, **M2 live user verification passed** after disabling the `startwm.sh` zink hook (`DISABLE_ZINK=true`) and using dynamic selkies resolution (F59–F63). **M2 is still open for codification + clean committed-path rerun**. **M3 remains deferred** as real Xorg + nvidia DDX work.
 **Evidence**: NRP docs gpu-pods (fetched 2026-08-31); `kubectl get nodes -o json` labels (2026-08-31); `github.com/selkies-project/docker-selkies-glx-desktop` `entrypoint.sh:43-127` + `Dockerfile:225-272`; `github.com/selkies-project/docker-selkies-egl-desktop` `entrypoint.sh` (same install block); in-image greps of `selkies.py`/`media_pipeline.py` (c8); `pip show pixelflux` in c8 (2.0.0); selkies 348bc4f `pyproject.toml` (floating pixelflux)
+
+### F59 — M0/M2 live GPU scheduling is cross-institution and multi-GPU, even with no node targeting
+M0 probe and M2 deployment both used only `nvidia.com/gpu: "1"` with **no nodeSelector/nodeAffinity**, as required. The scheduler did not guarantee SLU nodes:
+- M0 landed on `k8s-gpu-2.ucsc.edu`, GTX 1080 Ti, driver `580.159.04`; pixelflux auto-selected NVENC successfully.
+- M2 first landed on the same UCSC node, then later on `k8s-chase-ci-10.calit2.optiputer.net`, RTX 2080 Ti, driver `595.71.05`; pixelflux again auto-selected NVENC successfully.
+- The nodes expose multiple PCI GPU functions/devices to the guest (`/sys/bus/pci` is host-wide), even though only one NVIDIA render device is allocated to the pod.
+
+**Status**: ✅ verified live 2026-08-31; changes the assumption in F58 that generic GPU requests would practically land on SLU L4 nodes. NVENC itself worked on both observed consumer GPUs.
+**Evidence**: `kubectl get pod -o wide`; in-pod `nvidia-smi`; selkies logs showing `[NVENC] Initialized successfully` and `Stream settings active -> ... Encoder: NVENC`; node label queries.
+
+### F60 — GNOME on GPU nodes is broken by our `startwm.sh` zink hook, not by pixelflux NVENC
+`root/defaults/startwm.sh:4-8` runs before the desktop branch:
+```bash
+if which nvidia-smi && ls -A /dev/dri && [ "${DISABLE_ZINK,,}" == "false" ]; then
+  export LIBGL_KOPPER_DRI2=1
+  export MESA_LOADER_DRIVER_OVERRIDE=zink
+  export GALLIUM_DRIVER=zink
+fi
+```
+Our image sets `DISABLE_ZINK=false` at `Dockerfile.rhel9:191`, so on any GPU node with `/dev/dri`, GNOME/mutter is forced to use Mesa **zink** (OpenGL-on-Vulkan). Live GPU logs repeatedly showed:
+```text
+MESA: warning: zink: PERF WARNING! > 100 copy boxes detected
+```
+User symptoms under GNOME on GPU nodes:
+- Settings window exists in X but renders blank/tearing.
+- Firefox opens, then hangs the desktop/session.
+- CPU encode A/B (`SELKIES_USE_CPU=true`, `SELKIES_AUTO_GPU=false`) did **not** fix the blank/hung windows, proving the failure is desktop rendering/capture, not NVENC.
+- openbox (`DESKTOP=openbox`) worked, but the user explicitly rejected openbox as a valid GPU alternative.
+
+Verified live fix: set `DISABLE_ZINK=true` so `startwm.sh` does not override the image's llvmpipe environment. With that live patch, GNOME shell started cleanly, the zink PERF warning disappeared, and the user confirmed in the browser that GNOME, Settings, Firefox, and dynamic resolution work on the GPU node.
+
+**Status**: ✅ root cause and live fix user-verified 2026-08-31; ⚠️ production codification still pending (image/template decision + clean M2 rerun).
+**Evidence**: `root/defaults/startwm.sh:4-8`; `Dockerfile.rhel9:190-195`; live logs `/tmp/opencode/m2-*-gnome*.log` and `/tmp/opencode/m2-disable-zink-gnome.log`; user confirmation 2026-08-31 on pod `slu-rhel9-e2e-864c688c9-z5b8k`.
+
+### F61 — `NVIDIA_DRIVER_CAPABILITIES` did not reduce the mounted NVIDIA graphics stack on the live NRP GPU node
+We attempted to limit the container to CUDA + NVENC + utility by setting:
+```text
+NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+```
+(`video` is the correct NVENC/NVDEC capability name; `nvenc` is not a valid value in the tested runtime behavior.)
+
+The pod still had the full NVIDIA graphics stack mounted, including:
+- `libGLX_nvidia.so.*`
+- `libEGL_nvidia.so.*`
+- `libnvidia-glcore.so.*`
+- `libnvidia-opencl.so.*`
+- `/etc/vulkan/icd.d/nvidia_icd.json`
+- `/usr/share/glvnd/egl_vendor.d/10_nvidia.json`
+- Xorg NVIDIA DDX files
+
+Therefore we cannot rely on this env var alone to keep GNOME/Mesa away from NVIDIA graphics libraries on this cluster. The in-image `startwm.sh` zink hook (F60) is still the primary trigger because it explicitly sets `GALLIUM_DRIVER=zink` and `MESA_LOADER_DRIVER_OVERRIDE=zink`.
+
+**Status**: 🚧 live cluster behavior recorded; need either cluster/runtime confirmation or in-image hardening (`DISABLE_ZINK=true` and/or Mesa env pins) for GPU desktops.
+**Evidence**: `mount | grep nvidia`, `ldconfig -p | grep nvidia`, and pod env inspection on `slu-rhel9-e2e-*` 2026-08-31.
+
+### F62 — Firefox 140 ESR on multi-GPU NVIDIA nodes has secondary sandbox/PCI issues; live debug env is not yet an accepted fix
+Firefox 140 ESR (`Dockerfile.rhel9:223`) on the observed multi-GPU NVIDIA nodes logged:
+```text
+Sandbox: CanCreateUserNamespace() clone() failure: ENOSPC
+Crash Annotation GraphicsCriticalError: |[0][GFX1-]: More than 2 GPUs detected via PCI, secondary GPU is arbitrary
+```
+Verbose runs also showed:
+```text
+[GFX1-]: More than 1 GPU vendor detected via PCI, cannot deduce vendor
+[GFX1-]: PCI candidate 0x10de/...
+[GFX1-]: PCI candidate 0x1a03/2000
+[GFX1-]: Fallback WR to SW-WR
+```
+Upstream Mozilla Bug 1988408 changed related non-fatal GPU PCI messages from graphics-critical errors to warnings in Firefox 146; RHEL9 AppStream currently provides Firefox 140 ESR in our image.
+
+Live debug env used for diagnosis:
+```text
+MOZ_DISABLE_CONTENT_SANDBOX=1
+MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1
+MOZ_DISABLE_RDD_SANDBOX=1
+MOZ_DISABLE_UTILITY_SANDBOX=1
+MOZ_DISABLE_GMP_SANDBOX=1
+MOZ_WEBRENDER=0
+MOZ_X11_EGL=0
+MOZ_LAYERS_ALLOW_SOFTWARE_GL=1
+```
+This made Firefox windows appear in several tests, and the user confirmed Firefox was usable in the live `DISABLE_ZINK=true` + dynamic-resolution state. The env set is still **not** an accepted production fix; the primary desktop blocker was GNOME/zink (F60), and Firefox now needs a smallest-env re-test before any `MOZ_*` hardening is codified.
+
+**Status**: 🔓 open — Firefox live-verified with the debug env; decide whether any `MOZ_*` hardening is still required for the committed GPU path.
+**Evidence**: live Firefox logs, in-pod screenshot/launch test, user confirmation 2026-08-31, Bugzilla 1988408, in-pod `strings` on Firefox libs for `MOZ_*` env names.
+
+### F63 — `SELKIES_MANUAL_WIDTH/HEIGHT` lock both Xvfb and selkies; dynamic resolution is the verified GPU E2E mode
+Fixed manual resolution was used during M2 debugging:
+```text
+SELKIES_MANUAL_WIDTH=1920
+SELKIES_MANUAL_HEIGHT=1080
+```
+That has two coupled effects:
+- `root/etc/s6-overlay/s6-rc.d/svc-xorg/run:23-34` starts Xvfb at exactly that size (`-screen 0 1920x1080x24`).
+- selkies `settings.py` forces `is_manual_resolution_mode=true` whenever manual width/height is set, and `selkies.py` then ignores client resize requests.
+
+Removing both variables restored the intended dynamic path:
+- Xvfb starts at the default virtual maximum (`15360x8640`, overridable by `MAX_RES`).
+- `svc-de/run` boot xrandr is `1024x768`.
+- selkies reports `is_manual_resolution_mode=false`, `manual_width=0`, `manual_height=0`.
+- the browser client drives runtime xrandr resizes via selkies' `cvt`/`gtf` + xrandr path.
+
+The user confirmed on 2026-08-31 that this dynamic state works on the live GPU pod: the resolution follows the browser, and Firefox/Settings are usable.
+
+**Status**: ✅ verified live 2026-08-31; GPU E2E deployments should avoid fixed manual resolution except as a diagnostic.
+**Evidence**: `svc-xorg/run:23-34`, `svc-de/run:28-40`, selkies 348bc4f `settings.py`/`selkies.py` in-image, live `xrandr --query`, user confirmation.
 
 
 ## 5. Upstream Observations
@@ -317,7 +423,7 @@ NRP runs `USER rheluser`; our image runs s6 `/init` as root with services droppi
 
 ### F29 — Phase-2 GPU: only RHEL-supported path is real Xorg + DDX (not Xvfb `-vfbdevice`)
 Not the Xvfb `-vfbdevice` trick — impossible on EL9 (F16, now empirically confirmed). Intel GL via modesetting + mesa DRI; Intel encode via `libva-intel-hybrid-driver`; **NVIDIA userspace = runtime-matched `.run` install (official selkies pattern, F58) — no RHEL-repo DDX exists (F06) and no build-time pin is needed**.
-**Status**: 🔓 open — **M3 DEFERRED (user decision 2026-08-31); pattern decided** (port official boot-time userspace install; ADR in `decisions.md`). M0–M2 (no image change: NVENC streaming + CUDA compute via pixelflux runtime path) are the active milestone.
+**Status**: 🔓 open — **M3 remains DEFERRED** (real Xorg + nvidia DDX pattern decided; ADR in `decisions.md`). M0–M2 are the active milestone; **M2 is live-verified** after `DISABLE_ZINK=true` / llvmpipe hardening (F60) and remains open only for codification + clean committed-path rerun. User decision 2026-08-31: openbox is **not** a valid alternative; GNOME must work on GPU.
 **Evidence**: `memory-bank/activeContext.md#RHEL9-GPU-Facts`; `memory-bank/findings.md#F58`; `memory-bank/decisions.md`
 
 ### F30 — SLU registry/tag naming for the rhel9 image
