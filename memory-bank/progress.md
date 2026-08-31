@@ -1,8 +1,9 @@
 # Progress
 
-**Last Updated**: 2026-08-28
+**Last Updated**: 2026-08-31
 
 ## Done
+- [x] 2026-08-31 — **GPU plan vetted + approved (M0–M2 next; M3 deferred)** — NRP platform model (generic `nvidia.com/gpu` auto-schedules, max 2/pod, no runtimeClass; A100/A40/RTX-A6000/H100/H200 = **separate gated resources** → generic request never lands on A100; docs-sanctioned driver affinity = `nodeAffinity` on `nvidia.com/cuda.driver.major`); SLU nautilus inventory via node labels (8 GPU nodes, driver **595.71.05 uniform**; L4×16 on gpu01–06 = the generic pool, NVENC-capable; A100×4 on gpu07–08 = gated, no NVENC); pixelflux 2.0.0 in c8 (NVENC runtime-loaded, selkies 348bc4f forwards `SELKIES_USE_CPU`/`SELKIES_AUTO_GPU` — verified in-image; **floating dep → pin**, upstream's 1.4.7-pin precedent); **M3 pattern = port of the official `docker-selkies-glx-desktop` boot-time userspace install** (per-pod `.run` download matched to node driver; no in-image DDX; +2–5 min startup; failure → llvmpipe fallback); plus el9 death forensics (F16 corrected, mesa double-provide reproduced, 11-month timeline). Recorded: **F58** + F16/F29 updates + ADR. See `activeContext.md` GPU plan line
 - [x] 2026-08-27 — Memory Bank initialized (v1, seeded from Debian-variant analysis)
 - [x] 2026-08-27 — RHEL9 PLAN v1 (Debian-port approach) drafted; user introduced upstream fedora branches → v1 superseded
 - [x] 2026-08-27 — Full EL9/Fedora reference audit: upstream `el9` (deprecated), `fedora42/43/44` branches analyzed; CS9+EPEL9+RPMFusion-el9 package availability verified from live repo listings/repodata
@@ -22,8 +23,13 @@
 - (none — phase 1.5 dev scope closed 2026-08-28; production merge + R1 await scheduling)
 
 ## Next
-1. **Housekeeping (whenever ready)**: optional — delete temp `selkies-password` secret in `slu-researchtechnologies-dgilli` (keep `dockerhub-dgilli` for future pulls). Re-deploy any time: `./deploy/nrp/apply-nrp-e2e.sh`. **Phase 1.5 is COMPLETE end-to-end**
-2. R1 step 3 (pending user decision): SLU catalog — frontend REPO_BASE_URL patch → SLU metadata.yml/icons (offline-capable); disabled: pruning, SLU apps as full OCI refs
-3. Phase 2 candidates: GPU/Zink (Xorg path F06/F07/F29; `@@GPU_*@@` placeholders already in the NRP template) · extra desktop apps (libreoffice) · Wayland
+1. **GPU milestone M0–M2 (approved 2026-08-31 — THE next step; plan in `activeContext.md`, facts in F58)**:
+   - **M0** — free-scheduling probe pod (`nvidia.com/gpu: 1`, v4 image, NO nodeSelector — A100 unreachable via generic resource anyway): verify `nvidia-smi` (expect L4, 595.71.05), `/proc/driver/nvidia/version` readable in-container, pixelflux 2.0.0 **auto-selects NVENC** (selkies log encoder line), stream 200, 0 restarts. Teardown after
+   - **M1** — `apply-nrp-e2e.sh --gpu`: inject `nvidia.com/gpu: "1"` at the `@@GPU_LIMITS@@`/`@@GPU_REQUESTS@@` slots (mirrors NRP platform rendering), NRP >40% policy confirmation gate, `--dry-run` + structural cross-check (GPU lines iff `--gpu`); optional hardening: pin `pixelflux==2.0.0` in `Dockerfile.rhel9` (user: yes/no)
+   - **M2** — live E2E `./deploy/nrp/apply-nrp-e2e.sh --gpu` → Ready on scheduler-picked L4 node → browser verification (NVENC visible in selkies log, not browser) → user verify → teardown
+   - **M3 DEFERRED** (separate planning round): GPU desktop *rendering* (real Xorg + nvidia DDX) — pattern fixed = port official selkies boot-time userspace install (F58 + ADR); no in-image driver pin, no node targeting
+2. Housekeeping (whenever ready): optional — delete temp `selkies-password` secret in `slu-researchtechnologies-dgilli` (keep `dockerhub-dgilli` for future pulls). Re-deploy any time: `./deploy/nrp/apply-nrp-e2e.sh` (`--gpu` after M1). **Phase 1.5 is COMPLETE end-to-end**
+3. R1 step 3 (pending user decision): SLU catalog — frontend REPO_BASE_URL patch → SLU metadata.yml/icons (offline-capable); disabled: pruning, SLU apps as full OCI refs
+4. Phase 2 candidates (GPU now has its own track): extra desktop apps (libreoffice) · Wayland (pixelflux has a Smithay backend + zero-copy DMA-BUF→NVENC — research note, not a plan)
 2. **R1 step 3 (separate decision, pending)**: SLU catalog — frontend `REPO_BASE_URL` patch → SLU metadata.yml/icons (offline-capable via own nginx), `disabled:` pruning, SLU apps as full OCI refs
 3. Candidates: GPU/Zink phase 2 (Xorg path, F06/F07/F29) · libreoffice/extra apps on the GNOME desktop · Wayland
