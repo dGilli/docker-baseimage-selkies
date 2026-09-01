@@ -3,7 +3,7 @@
 # them (see scripts/delta-allowlist.txt [generated]).
 #
 # Scope: parse-only. A real image build is impossible on public runners —
-# Dockerfile.rhel9 builds ONLY on a subscription-registered RHEL host
+# Dockerfile builds ONLY on a subscription-registered RHEL host
 # (entitlement passthrough, finding F03); builds happen on the SLU host per
 # memory-bank/build-deployment.md.
 name: fork-maintenance
@@ -40,11 +40,11 @@ jobs:
           done
           echo "bash -n OK: $(echo "$files" | wc -l) files"
 
-      - name: hadolint Dockerfile.rhel9 (parse-only, errors gate)
+      - name: hadolint Dockerfile (parse-only, errors gate)
         run: |
           docker run --rm -v "$PWD:/src" -w /src \
             hadolint/hadolint:latest-alpine \
-            hadolint --failure-threshold error /src/Dockerfile.rhel9
+            hadolint --failure-threshold error /src/Dockerfile
 
       - name: Delta report (budget gate)
         run: bash scripts/upstream-delta.sh upstream/fedora44 HEAD

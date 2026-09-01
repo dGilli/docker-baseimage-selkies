@@ -16,26 +16,38 @@
 # trixie / f44 / UBI9 fixtures.
 
 [modified]
+# Dockerfile: WHOLE-FILE OWNERSHIP (not a distro-guarded hunk) — the branch's
+# MAIN image is the SLU RHEL9 image. Upstream design: the branch name implies
+# the variant, so the build file is just `Dockerfile` (was `Dockerfile.rhel9`,
+# renamed 2026-09-01). Supersedes the baseline fedora44 content at this path
+# (still reachable via upstream/fedora44 — nothing lost).
+Dockerfile
 root/defaults/startwm.sh
 root/etc/s6-overlay/s6-rc.d/init-nginx/run
 root/etc/s6-overlay/s6-rc.d/init-selkies-config/run
 root/etc/s6-overlay/s6-rc.d/svc-docker/run
 root/selkies-proot
 
-# Intentionally absent: none relative to the f44 baseline. NOTE: the 6
-# svc-dbus files (absent on f44, present on the old master baseline) ARE
-# re-added here as ADDITIVE files — f44's deletion is fatal for our GNOME 40
-# desktop: ui/status/power.js:39 probes the SYSTEM bus at startup and throws
-# a fatal JS exception without /run/dbus/system_bus_socket (f44 runs openbox,
-# so upstream never hit it). Reconcile QA regression, fixed 2026-09-01.
+# Intentionally absent:
+#   Dockerfile.aarch64 — deleted 2026-09-01 (user decision): a fedora arm64
+#     build file next to the RHEL9 one is confusing; this branch ships amd64
+#     only for now. Re-add (as [modified]) when RHEL9 arm64 work starts.
+#     NOTE: the baseline Jenkinsfile (generated, taken verbatim) still
+#     references Dockerfile.aarch64 — harmless: this branch is built locally
+#     (podman), never by LS Jenkins.
+#   The 6 svc-dbus files (absent on f44, present on the old master baseline)
+#   ARE re-added here as ADDITIVE files — f44's deletion is fatal for our
+#   GNOME 40 desktop: ui/status/power.js:39 probes the SYSTEM bus at startup
+#   and throws a fatal JS exception without /run/dbus/system_bus_socket (f44
+#   runs openbox, so upstream never hit it). Reconcile QA regression, fixed
+#   2026-09-01.
 [intentionally-absent]
+Dockerfile.aarch64
 
 [generated]
 Jenkinsfile
 README.md
 package_versions.txt
 jenkins-vars.yml
-Dockerfile
-Dockerfile.aarch64
 .github/workflows/external_trigger.yml
 .github/workflows/greetings.yml
