@@ -12,12 +12,12 @@ RHEL9 variant — **builds only on a subscription-registered RHEL host** (entitl
 ```bash
 # preflight (once per host): entitlement passthrough must work
 podman run --rm registry.access.redhat.com/ubi9/ubi dnf repolist   # expect rhel-9-for-x86_64-*
-podman build -f Dockerfile.rhel9 -t dgilli/baseimage-selkies:rhel9-p1-gnome .
+podman build -t dgilli/baseimage-selkies:rhel9-p1-gnome .
 # dev registry push (F30; rootless podman login docker.io as dgilli)
 podman tag dgilli/baseimage-selkies:rhel9-p1-gnome docker.io/dgilli/selkies-rhel9:latest
 podman push docker.io/dgilli/selkies-rhel9:latest    # OCI manifest; pin by registry digest
 ```
-Current: c8 `5c835fb6a147` (GNOME default desktop + SLU wallpaper + R1 proot-apps). Build/verify history: `tasks/2026-08/270827_rhel9-build.md`, `280828_rhel9-gnome-desktop.md`, `280828_r1-proot-apps.md`.
+Current: c9 `a4e303101691` (reconciled f44 baseline; GNOME default desktop + SLU wallpaper + R1 proot-apps + svc-dbus restore; production pin `v5-llvmpipe`). Build/verify history: `tasks/2026-08/270827_rhel9-build.md`, `280828_rhel9-gnome-desktop.md`, `280828_r1-proot-apps.md`.
 
 ## Run / smoke test
 ```bash
@@ -51,8 +51,7 @@ Checks that matter:
 ## Where things are
 | Thing | Location |
 |-------|----------|
-| Build (amd64/arm64) | `Dockerfile`, `Dockerfile.aarch64` |
-| Build (RHEL9) | `Dockerfile.rhel9` (+ vendored s6 tree `root-base/`) |
+| Build (RHEL9 — branch main image) | `Dockerfile` (renamed from `Dockerfile.rhel9` 2026-09-01; + vendored s6 tree `root-base/`; `Dockerfile.aarch64` intentionally absent until arm64 work) |
 | Service tree | `root/etc/s6-overlay/s6-rc.d/` |
 | Desktop defaults | `root/defaults/` (`startwm*.sh`, `autostart*`, `default.conf`, menus); SLU wallpaper `root/usr/share/backgrounds/slu-rhel.jpg` |
 | NRP k8s mapping | `deploy/nrp-selkies-rhel9.yaml` |

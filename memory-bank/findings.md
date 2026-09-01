@@ -552,7 +552,7 @@ master's `readme-vars.yml` = 540-line template containing the distro support tab
 **Status**: ✅ resolved (process codified in projectRules §Fork Maintenance).
 **Evidence**: 2026-09-01 A0/A5 flow; Git Workflow Master verification notes (activeContext).
 
-### F74 — User commit-style preference (2026-09-01 rewording): upstream-house-style subjects + fixed `Bot Updating Memory Bank` journal heading
+### F74 — User commit-style preference (2026-09-01 rewording): upstream-house-style subjects + fixed `Bot Updating Memory Bank` journal heading + no MB references in headings
 After the reconcile landed, the user reworded the curated series subjects (rebase; **bodies preserved verbatim**) "to better fit in the established commit messages" — i.e. the UPSTREAM house style. Old → new (subject only):
 - `rhel9: phase-1 RHEL9 image (PLAN v4) — SLU-owned UBI9 base ...` → `add SLU-owned RHEL UBI9 base + Xvfb/openbox/selkies stack`
 - `rhel9: standard RHEL GNOME (gnome-shell 40.10) ... — task 2 + SLU wallpaper` → `add standard rhel gnome-shell \`40.10\` as default X11 desktop`
@@ -563,10 +563,11 @@ After the reconcile landed, the user reworded the curated series subjects (rebas
 - `maintenance: upstream delta tooling — ...` → `add upstream delta allowlist, delta report, and fork CI workflow tooling`
 - `rhel9: restore svc-dbus system bus — ...` → `restore svc-dbus system bus for rhel9 to fix GNOME 40 power indicator crashes`
 - `memory-bank: reconcile task closed — ...` → `Bot Updating Memory Bank`
+- `bump production pin to v5-llvmpipe (c9)` → `bump production pin to v5-llvmpipe` (round 2, 2026-09-01: `a1b272c` → `7f1d82f`, identical trees — dropped the MB-internal build label from the heading)
 
-Pattern: (a) code subjects = lowercase imperative, concise, no variant prefix, no milestone framing, no em-dash; (b) MB journal commits = fixed bot-style heading `Bot Updating Memory Bank`; (c) bodies untouched.
-**Status**: ✅ codified 2026-09-01 in `projectRules.md#General` (old "messages reference the variant" rule replaced).
-**Evidence**: `rhel9` series `9dc267e..4e57e7a` (post-reword) vs `9ecf464..ab94c97` (pre-reword) — identical bodies, reworded subjects.
+Pattern: (a) code subjects = lowercase imperative, concise, no variant prefix, no milestone framing, no em-dash; (b) MB journal commits = fixed bot-style heading `Bot Updating Memory Bank`; (c) bodies untouched; (d) **commit headings never reference the Memory Bank** — no MB paths, no MB-internal identifiers (e.g. build label `c9`); an MB reference belongs in the body, and only when needed.
+**Status**: ✅ codified 2026-09-01 in `projectRules.md#General` (old "messages reference the variant" rule replaced; extended same day with rule (d)).
+**Evidence**: `rhel9` series `9dc267e..4e57e7a` (post-reword) vs `9ecf464..ab94c97` (pre-reword) — identical bodies, reworded subjects; round 2: `a1b272c` → `7f1d82f`.
 
 ---
 

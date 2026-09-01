@@ -11,7 +11,7 @@
 # PREFLIGHT (required once per host): entitlement passthrough must work
 podman run --rm registry.access.redhat.com/ubi9/ubi dnf repolist   # expect rhel-9-for-x86_64-*
 
-podman build -f Dockerfile.rhel9 -t dgilli/baseimage-selkies:rhel9-p1-gnome .
+podman build -t dgilli/baseimage-selkies:rhel9-p1-gnome .
 
 # PUSH (phase 1.5 dev registry — Docker Hub, user decision 2026-08-28 / F30):
 podman login docker.io            # rootless user (creds live in the rootless auth store)
@@ -23,7 +23,7 @@ curl -sH "Authorization: Bearer $TOKEN" -H 'Accept: application/vnd.oci.image.ma
   https://registry-1.docker.io/v2/dgilli/selkies-rhel9/manifests/latest | sha256sum
 ```
 - **Entitled-host build constraint (PLAN v4)**: the rhel9 variant's vendored base stage (`FROM registry.access.redhat.com/ubi9/ubi`) resolves RHEL packages via podman's automatic entitlement passthrough — builds only succeed on **subscription-registered RHEL hosts**. Runtime needs no entitlement; NRP just pulls the image. (Rationale: `decisions.md` 2026-08-27 SLU-owned base ADR.)
-- **Dev registry (F30, resolved 2026-08-28)**: Docker Hub `dgilli/selkies-rhel9:latest` — **now = c9 `a4e303101691`** (reconciled build, 2026-09-01; also pushed as `:c9` for provenance). History: c8 `5c835fb6a147` (manifest `sha256:b70d42e3…`) was latest until the reconcile; c7 = manifest `sha256:46246466…`. Production pin `v4-llvmpipe` still = c8 — bump is a USER decision after verification (milestone tag pending user-assigned ID).
+- **Dev registry (F30, resolved 2026-08-28)**: Docker Hub `dgilli/selkies-rhel9:latest` — **now = c9 `a4e303101691`** (reconciled build, 2026-09-01; also pushed as `:c9` for provenance). History: c8 `5c835fb6a147` (manifest `sha256:b70d42e3…`) was latest until the reconcile; c7 = manifest `sha256:46246466…`. Production pin = **`v5-llvmpipe` = c9** (manifest `sha256:6b9ee56628b7ee30d857cd16cf87ac46bf59ffe4ffce08523c8f31b67ae40e26`), bumped 2026-09-01 per user decision — immutable tag sequence v2→v3→v4→v5-llvmpipe; old pins stay in the registry for one-step rollbacks. Milestone tag: dropped per user decision 2026-09-01.
 - podman → Docker Hub pushes **OCI** manifests: the local store's docker-format digest ≠ registry manifest digest — always pin/verify by registry digest.
 - NRP k8s mapping for this image: `deploy/nrp-selkies-rhel9.yaml` (single port 3000; ws same-origin via nginx `/websocket`; no securityContext — F28).
 
@@ -50,8 +50,8 @@ curl -sH "Authorization: Bearer $TOKEN" -H 'Accept: application/vnd.oci.image.ma
   - GPU manifests render `nvidia.com/gpu: "1"`, `DISABLE_ZINK=true`, and `strategy.type: Recreate`; CPU manifests render none of those GPU-specific fields.
 
 ## Checklist for a new distro variant
-1. `Dockerfile.<distro>` mirroring stage architecture (`systemPatterns.md#1`)
-2. `Dockerfile.<distro>.aarch64` if arm is in scope
+1. New branch from the relevant upstream baseline; the branch's MAIN image = `Dockerfile` (upstream design — branch name implies the variant; the old `Dockerfile.<distro>` deviation (F22) is resolved for rhel9, 2026-09-01), mirroring stage architecture (`systemPatterns.md#1`)
+2. `Dockerfile.aarch64` if arm is in scope (rhel9: intentionally absent until RHEL9 arm64 work — allowlist [intentionally-absent])
 3. Shared `root/` tree — verify every sed/package path exists on the new distro
 4. Regenerate `package_versions.txt` equivalent for the variant
 5. Smoke test per `testing-patterns.md`
