@@ -1,0 +1,38 @@
+# SLU fork delta allowlist — the budgeted difference vs the upstream baseline
+# (upstream/fedora44). Enforced by scripts/upstream-delta.sh + fork CI.
+#
+# B2 rules (memory-bank/projectRules.md#Fork-Maintenance):
+#   - [modified]           upstream files we modify. Every hunk must be
+#                          distro-guarded and a no-op on the baseline.
+#                          ADDING a path here requires justification in the
+#                          same PR; this file's git history IS the delta audit.
+#   - [intentionally-absent] baseline files we deliberately do not ship.
+#   - [generated]          never hand-edit; always take baseline verbatim.
+#                          (README/Jenkinsfile/package_versions are bot-maintained.)
+#
+# Guard predicate rule: predicates must be content-based
+# (/etc/redhat-release, file-exists, binary-exists). 'dnf' is NOT a
+# discriminator (present on fedora AND UBI9). Test every guard against
+# trixie / f44 / UBI9 fixtures.
+
+[modified]
+root/defaults/startwm.sh
+root/etc/s6-overlay/s6-rc.d/init-nginx/run
+root/etc/s6-overlay/s6-rc.d/init-selkies-config/run
+root/etc/s6-overlay/s6-rc.d/svc-docker/run
+root/selkies-proot
+
+# Empty by design: the f44 baseline already ships without the svc-dbus
+# system-bus service (6 files present on the old master baseline; we adopt
+# the f44 deletion — recorded in the 2026-09-01 reconcile task doc).
+[intentionally-absent]
+
+[generated]
+Jenkinsfile
+README.md
+package_versions.txt
+jenkins-vars.yml
+Dockerfile
+Dockerfile.aarch64
+.github/workflows/external_trigger.yml
+.github/workflows/greetings.yml

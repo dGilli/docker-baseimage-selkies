@@ -1,0 +1,50 @@
+# SLU fork maintenance gate (NOT an upstream file — additive, ours).
+# Upstream's .github/workflows/* are bot-generated templates; we never edit
+# them (see scripts/delta-allowlist.txt [generated]).
+#
+# Scope: parse-only. A real image build is impossible on public runners —
+# Dockerfile.rhel9 builds ONLY on a subscription-registered RHEL host
+# (entitlement passthrough, finding F03); builds happen on the SLU host per
+# memory-bank/build-deployment.md.
+name: fork-maintenance
+
+on:
+  push:
+    branches: [rhel9]
+  pull_request:
+    branches: [rhel9]
+
+jobs:
+  delta-and-lint:
+    name: delta budget + shell syntax + hadolint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream baseline
+        run: |
+          git remote add upstream https://github.com/linuxserver/docker-baseimage-selkies.git 2>/dev/null \
+            || git remote set-url upstream https://github.com/linuxserver/docker-baseimage-selkies.git
+          git fetch upstream --prune
+
+      - name: Shell syntax (bash -n on all delta shell)
+        run: |
+          files="$(git ls-files '*.sh' 'root/selkies-proot' \
+            'root/etc/s6-overlay/s6-rc.d/*/run' \
+            'root-base/etc/s6-overlay/s6-rc.d/*/run')"
+          [ -n "$files" ] || { echo "no shell files matched — ls-files pattern bug"; exit 1; }
+          for f in $files; do
+            bash -n "$f" || { echo "bash -n FAIL: $f"; exit 1; }
+          done
+          echo "bash -n OK: $(echo "$files" | wc -l) files"
+
+      - name: hadolint Dockerfile.rhel9 (parse-only, errors gate)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            hadolint/hadolint:latest-alpine \
+            hadolint --failure-threshold error /src/Dockerfile.rhel9
+
+      - name: Delta report (budget gate)
+        run: bash scripts/upstream-delta.sh upstream/fedora44 HEAD
