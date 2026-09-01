@@ -1,0 +1,37 @@
+# Tasks — 2026-08
+
+## Housekeeping
+### 2026-08-27: Memory Bank init + git reorganization
+- Memory Bank created (v1, Debian-variant analysis) — re-committed on `rhel9` branch after user re-initialized the repo as full upstream clone
+- Git: `origin` = user fork (dGilli), `upstream` = linuxserver (push disabled); branch `rhel9` cut from upstream master tip `69f4fc9`
+- No task doc (housekeeping)
+
+## Active
+### [IN-PROGRESS] Add RHEL9 to supported images
+- **Phase 1 (CPU desktop + streaming): DONE 2026-08-27** — built, tested (autonomous matrix + user manual x2), committed `bd46cdb`
+- **Phase 1.5 (dev scope): DONE 2026-08-28** — pushed `docker.io/dgilli/selkies-rhel9:latest` (first push manifest `sha256:46246466…` = c7; **re-pushed same day with R1 c8 = manifest `sha256:b70d42e3…`, current**); verified pull-by-digest + cold-boot smoke (web 200, ws 101, wallpaper); NRP dev manifest `deploy/nrp-selkies-rhel9.yaml`; gates closed F28 (no securityContext in NRP templates — rootful OK) + F30 (Docker Hub, **fully resolved**: private + production pin `v4-llvmpipe` + imagePullSecret) + F55 (docker default seccomp allows ptrace ≥4.8)
+- **Phase 1.5 (production artifact): DONE 2026-08-28** — `deploy/nrp/selkies-rhel9.yaml.template` (drop-in NRP placeholder template — our repo owns it per user; slu-nrp-k8s-vm = earlier attempt, reference only); fixes 3 breaking mismatches (port 3000, USERNAME/PASSWORD auth, encoder omitted → pixelflux H.264, F57); render + cross-check ALL PASS
+- **Phase 1.5 (production E2E): COMPLETE 2026-08-28** — one-shot `deploy/nrp/apply-nrp-e2e.sh` (`7d7f2ea`) deployed to the live NRP cluster (ns `slu-researchtechnologies-dgilli`): pull secret from local podman auth, pod Running 0 restarts, ingress live, 401/200 auth verified; **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1 — "It all looks great"); user tore down the pod (secrets remain, documented). Phase 1.5 done end-to-end
+- **GPU utilization plan: vetted + approved 2026-08-31 (M0–M2 = next step, M3 deferred)** — **F58**: NRP platform model (generic `nvidia.com/gpu` auto-schedules, no runtimeClass; A100/H100/etc. = separate gated resources → generic request never lands on A100; docs-sanctioned driver affinity exists) + SLU nautilus inventory (8 GPU nodes, driver 595.71.05 uniform; L4×16 = generic NVENC pool; A100×4 = gated, no NVENC) + pixelflux 2.0.0 capability (runtime NVENC; floating dep → pin) + **M3 pattern = port of the official `docker-selkies-glx-desktop` boot-time userspace driver install** (per-pod `.run` matched to node driver — no in-image DDX, no targeting). Also: upstream el9 death forensics (F16 corrected — el9 never had the DRI3 block; mesa double-provide conflict reproduced on `baseimage-el:9`; 11-month timeline; cstate #310 404). Plan detail in `activeContext.md`
+- **GPU M0–M2 execution: complete (2026-08-31 → 2026-09-01)** — M0 verified free-scheduling NVENC on UCSC GTX 1080 Ti / driver 580; M1 added `--gpu` to `deploy/nrp/apply-nrp-e2e.sh` (NRP >40% gate, dry-run, cross-check; no pixelflux pin). Earlier M2 failure was root-caused to `startwm.sh:4-8` forcing Mesa zink on GPU nodes while `Dockerfile.rhel9:191` sets `DISABLE_ZINK=false`. The full debug env was reduced to minimal `DISABLE_ZINK=true` only; `MOZ_*`, explicit Mesa/EGL/Vulkan pins, and `NVIDIA_DRIVER_CAPABILITIES` overrides were not required. The GPU deploy path renders `DISABLE_ZINK=true` + `Recreate` strategy; clean rerun passed with GNOME, Settings, Firefox, dynamic resize, and NVENC. On 2026-09-01, GPU utilization monitoring was documented/live-tested (F65) and the start script was hardened to reuse an existing namespace pull secret when local container auth is absent (F66). Findings **F59–F66**; state in `activeContext.md#GPU-M2-clean-path---utilization-state-2026-08-31--2026-09-01`.
+- Phase 2 (GPU/Zink, Wayland, DinD, proot-apps, pelorus, DEV_MODE dnf port): deferred
+- **Roadmap R1 steps 1–2 SHIPPED 2026-08-28 (c8 `5c835fb6a147`, `cc2c2b7`)**: proot-apps 0.3.2 in the image + RHEL9 bwrap-stub guard — dashboard install/run verified end-to-end on fresh volume (FileZilla 3.68.1 rendered, NotSandboxed fallback); step 3 (SLU catalog) pending separate decision. See `280828_r1-proot-apps.md`, F53–F56
+- History: v1 (Debian port) → v2/v3 (fedora44-modeled, baseimage-el:9) → **vetting** found baseimage-el deprecated + Oracle-repo-based + 6 defects → **v4** (SLU-owned UBI9 base + entitled RHEL repos, D1–D6 fixes) → **build** (5 cycles, F31–F35/F41 RHEL9 deltas)
+- **Vetting/defect log: `270827_rhel9-vetting-plan-v4.md`** · **Build log: `270827_rhel9-build.md`**
+- Key references: upstream `fedora44` (current RPM-family pattern), upstream `el9` (deprecated; proved the stack, and its svc-xorg/-vfbdevice deletion = D5 evidence), entitled RHEL 9.8 host repoquery (authoritative package audit)
+- See: `memory-bank/activeContext.md#BUILD-executed-2026-08-27-user-released-the-hold`, `memory-bank/decisions.md` (4 ADRs), `memory-bank/findings.md` (F01–F66), `memory-bank/techContext.md`
+
+## Completed
+### 2026-08-28: RHEL9 GNOME desktop (task 2) — approved + committed
+- Standard RHEL GNOME (gnome-shell 40.10) as default X11 desktop; NRP-proven direct launch; openbox fallback via `DESKTOP=openbox`; clean desktop (no auto-apps, user decision)
+- 7 build cycles (QA fixes F49/F50/F51; wallpaper follow-up F52); **current image `dgilli/baseimage-selkies:rhel9-p1-gnome` = `99da8c1475f5`** (c7, SLU/RHEL wallpaper `root/usr/share/backgrounds/slu-rhel.jpg` set via gsettings at boot)
+- Autonomous smoke + edge matrix 4/4 ALL PASS; screenshot-verified; user approved
+- Commits `11a8afd` (desktop) + `06bc207` (wallpaper) on `rhel9`; revert tag `pre-gnome-desktop` → `b4c199f`
+- See: [280828_rhel9-gnome-desktop.md](./280828_rhel9-gnome-desktop.md), `memory-bank/findings.md` F42–F52, `memory-bank/decisions.md` (GNOME ADR)
+
+### 2026-08-27: RHEL9 phase-1 image built + tested + committed
+- `Dockerfile.rhel9` (SLU-owned UBI9 base, digest-pinned) + `root-base/` vendored s6 tree + 4 shared-tree no-op edits
+- Final image `dgilli/baseimage-selkies:rhel9-p1` = `10bbd70e1502`; 5 build cycles (F31–F35, F41)
+- Full v4 negative matrix PASS + user manual test #2 PASS ("I got a shell!")
+- Commit `bd46cdb` on `rhel9`; revert tag `pre-rhel9-build` → `7b3af8b`
+- See: [270827_rhel9-build.md](./270827_rhel9-build.md)
