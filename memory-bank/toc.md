@@ -27,6 +27,9 @@
 | Path | Purpose |
 |------|---------|
 | [tasks/2026-08/README.md](./tasks/2026-08/README.md) | Monthly summary |
+| [tasks/2026-09/README.md](./tasks/2026-09/README.md) | Monthly summary |
+| [tasks/2026-09/010901_reconcile-f44-baseline.md](./tasks/2026-09/010901_reconcile-f44-baseline.md) | Reconcile rhel9-dev MVP onto upstream/fedora44: curated series, 17-row resolution table, F67 fix, delta budget, sync workflow (F67–F73) |
+| [tasks/2026-09/reconcile-delta-reference.patch](./tasks/2026-09/reconcile-delta-reference.patch) | Re-derivation checklist: our shared-file modifications vs the old master baseline (sync-time reference) |
 | [tasks/2026-08/270827_rhel9-vetting-plan-v4.md](./tasks/2026-08/270827_rhel9-vetting-plan-v4.md) | PLAN v3 vetting evidence + defect log (D1–D6) + PLAN v4 delta |
 | [tasks/2026-08/270827_rhel9-build.md](./tasks/2026-08/270827_rhel9-build.md) | Phase-1 build log: 5 cycles (F31–F35/F41), test evidence, artifacts |
 | [tasks/2026-08/280828_rhel9-gnome-desktop.md](./tasks/2026-08/280828_rhel9-gnome-desktop.md) | Task-2 build log: GNOME desktop (gnome-shell 40.10), 7 cycles (F42–F52, incl. SLU wallpaper), edge 4/4, artifacts |

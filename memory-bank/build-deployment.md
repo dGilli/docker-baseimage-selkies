@@ -23,7 +23,7 @@ curl -sH "Authorization: Bearer $TOKEN" -H 'Accept: application/vnd.oci.image.ma
   https://registry-1.docker.io/v2/dgilli/selkies-rhel9/manifests/latest | sha256sum
 ```
 - **Entitled-host build constraint (PLAN v4)**: the rhel9 variant's vendored base stage (`FROM registry.access.redhat.com/ubi9/ubi`) resolves RHEL packages via podman's automatic entitlement passthrough — builds only succeed on **subscription-registered RHEL hosts**. Runtime needs no entitlement; NRP just pulls the image. (Rationale: `decisions.md` 2026-08-27 SLU-owned base ADR.)
-- **Dev registry (F30, resolved 2026-08-28)**: Docker Hub `dgilli/selkies-rhel9:latest` — currently = c8 `5c835fb6a147` (manifest `sha256:b70d42e3…`; first push was c7 = manifest `sha256:46246466…`). Production registry + tag scheme: open (SLU registry + NRP template merge). Upstream "no latest" convention applies to the public LSIO lineage, not the SLU dev namespace.
+- **Dev registry (F30, resolved 2026-08-28)**: Docker Hub `dgilli/selkies-rhel9:latest` — **now = c9 `a4e303101691`** (reconciled build, 2026-09-01; also pushed as `:c9` for provenance). History: c8 `5c835fb6a147` (manifest `sha256:b70d42e3…`) was latest until the reconcile; c7 = manifest `sha256:46246466…`. Production pin `v4-llvmpipe` still = c8 — bump is a USER decision after verification (milestone tag pending user-assigned ID).
 - podman → Docker Hub pushes **OCI** manifests: the local store's docker-format digest ≠ registry manifest digest — always pin/verify by registry digest.
 - NRP k8s mapping for this image: `deploy/nrp-selkies-rhel9.yaml` (single port 3000; ws same-origin via nginx `/websocket`; no securityContext — F28).
 
@@ -56,3 +56,41 @@ curl -sH "Authorization: Bearer $TOKEN" -H 'Accept: application/vnd.oci.image.ma
 4. Regenerate `package_versions.txt` equivalent for the variant
 5. Smoke test per `testing-patterns.md`
 6. `readme-vars.yml`/docs update (new tag row) — requires upstream-style builder or manual var edit
+
+## Upstream Sync Procedure (codified 2026-09-01 — see projectRules §Fork Maintenance, ADR 2026-09-01)
+Baseline: `upstream/fedora44`. Cadence: monthly soft ceiling; HARD trigger = before any tagged image build.
+
+```bash
+# 0. fetch + prune (phantom-ref trap, F73)
+git fetch upstream --prune
+
+# 1. conflict inventory WITHOUT touching the worktree
+git merge-tree --write-tree rhel9 upstream/fedora44
+
+# 2. drift count
+git rev-list --count rhel9..upstream/fedora44
+
+# 3. image-affecting test (non-empty ⇒ full rebuild + boot matrix + NRP smoke)
+git diff --name-only rhel9..upstream/fedora44 -- root/ 'Dockerfile*'
+
+# 4. merge (diff3 — per-command, no config change) and resolve ONLY per
+#    scripts/delta-allowlist.txt + the re-derivation guide
+#    (memory-bank/tasks/2026-09/reconcile-delta-reference.patch)
+git -c merge.conflictStyle=diff3 merge upstream/fedora44
+
+# 5. commit: sync: upstream/fedora44 @ <sha> (<n> commits)
+#    body: image-affecting? touched paths? QA result?
+
+# 6. budget gate (CI enforces this on rhel9 — must pass)
+scripts/upstream-delta.sh upstream/fedora44 HEAD
+
+# 7. push (always fast-forward — branch is protected: no force, no delete)
+git push origin rhel9
+```
+
+Never: rebase, `git merge upstream/master` (dual-lineage trap), `-X union`, hand-editing generated files, `git revert -m 1` on a merge that may be re-landed (re-merge trap).
+
+## Reconciled build facts (2026-09-01)
+- **c9** = `a4e303101691` — built on this host (entitled RHEL 9.8) from `rhel9@85c605c` via `podman build -f Dockerfile.rhel9`; heavy layers cached from the c8 build (only `COPY /root` tail rebuilt, ~1 min).
+- NRP smoke (recon deploys, torn down after): CPU `slu-rhel9-recon-cpu` on exp-19-11.sdsc (Ready, gnome-shell×2, svc-dbus+svc-de stable, ingress 401→200) · GPU `slu-rhel9-recon-gpu` on k8s-haosu-15.sdsc (RTX 2080 Ti driver 595.91.07, Ready 0 restarts, NVENC 13.0 init+bound+stream via in-pod synthetic client `/tmp/opencode/gpu_stream_test.py` — run with `/lsiopy/bin/python`, host has no websockets module).
+- Note: NRP free scheduling placed BOTH recon pods on SDSC nodes (not SLU nautilus nodes) — the pool is cross-institution (F59).

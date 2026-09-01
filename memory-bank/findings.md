@@ -5,7 +5,7 @@
 
 **Status legend**: ✅ resolved | ⚠️ accepted degradation | 🚧 hurdle/constraint (workaround documented) | 🔓 open (needs decision or verification)
 
-**Last updated**: 2026-08-31
+**Last updated**: 2026-09-01
 
 ---
 
@@ -512,6 +512,61 @@ DEV_MODE gate message renders "not supported on rhel"; the non-Debian gate works
 `dnf repoquery --installed --qf '%{reponame}'` returns `@System` for every package — the sm container-mode plugin does not write INSTALLFROM headers (tested `--setopt=installfrom=url:1` + dnf.conf, no effect). F03's provenance evidence is instead generated via **baseline diff vs vanilla ubi9/ubi (188 pkgs) + per-package GPG key** → 213 ubi9-base / 204 rhel9 / 24 epel.
 **Status**: ✅ resolved — `package_versions_rhel9.txt` generated 2026-08-27 (method noted in the artifact).
 **Evidence**: repo-root `package_versions_rhel9.txt`.
+
+---
+
+## 7. Fork Reconciliation & Maintenance (2026-09-01)
+
+### F67 — f44's `svc-dbus` deletion is fatal for GNOME 40: the power indicator probes the SYSTEM bus
+Reconcile plan adopted f44's removal of the `svc-dbus` system-bus service (6 files present on the old master baseline). Local boot matrix: gnome-shell crash-loops (svc-de flapping, session dbus-daemon PIDs incrementing each cycle). Root cause: `ui/status/power.js:39` opens a `Gio` connection to the **system** bus during `_initializeUI`; without `/run/dbus/system_bus_socket` → `Gio.IOErrorEnum: Could not connect: No such file or directory` → `Execution of main.js threw exception` → gnome-shell exits → s6 restarts svc-de → repeat. f44 ships openbox (no gnome-shell), so upstream never observed it.
+**Status**: ✅ resolved 2026-09-01 — `85c605c` restores the 6 master-era files VERBATIM from tag `pre-rhel9-reconcile` (zero new code; the exact config c8 ran on for days). They are ADDITIVE vs f44 (A status) — the `[modified]` delta budget is unchanged at 5 files; allowlist comment documents the adoption. Verified post-fix: local matrix (svc-dbus up, gnome-shell×2, no flap) + NRP CPU pod (svc-dbus up 318s, gnome-shell×2).
+**Evidence**: pre-fix crash log `/tmp/opencode/gnome-log-clean.txt` (JS stack: status/power.js:39 → main.js); `85c605c` commit message; PR #2.
+
+### F68 — f44 `svc-selkies/run` exports `GBM_BACKEND=nvidia-drm` + a DEBIAN `GBM_BACKENDS_PATH` — path is an upstream bug; export proven inert on our X11/CUDA path
+f44 (added in `abda61f`, wayland work) prepends to selkies startup: `GBM_BACKENDS_PATH=/usr/lib/x86_64-linux-gnu/gbm` (Debian multiarch path — on EL the gbm dir is `/usr/lib64/gbm`) + `export GBM_BACKEND=nvidia-drm`. Adopted verbatim for upstream parity (no local delta). Verified on c9 NRP GPU pod (RTX 2080 Ti, driver 595.91.07): pixelflux `NVENC API 13.0` init + bound-by-PCI-bus-id + 45s synthetic stream with 1920x1080 resize = success; gnome-shell stable; selkies boot "Fixing GBM library linkage" normal. GBM consumers exist only in the deferred Wayland path (PIXELFLUX_WAYLAND); desktop GL = llvmpipe/GLX; pixelflux NVENC = direct CUDA — so the export cannot interfere with the verified stack.
+**Status**: ⚠️ accepted (parity) — upstream bug-report candidate (user decision; default record-only).
+**Evidence**: NRP smoke 2026-09-01 (`slu-rhel9-recon-gpu` on k8s-haosu-15.sdsc); `root/etc/s6-overlay/s6-rc.d/svc-selkies/run` @ upstream/fedora44 ("Start Selkies" section).
+
+### F69 — GitHub rulesets API 500s on personal repos — legacy branch protection is the path (and auto-disables force-push/deletions)
+`POST /repos/dGilli/docker-baseimage-selkies/rulesets`: most rule types fail validation ("data matches no possible input" — user repos accept only `non_fast_forward`), and ANY creation attempt that passes validation returns **HTTP 500** (reproduced on a throwaway branch name → platform limitation, not payload). Legacy `PUT /branches/{b}/protection` works and requires all four fields (`required_status_checks`, `enforce_admins`, `required_pull_request_reviews`, `restrictions` — empty `{}` → 422). Side effect discovered: enabling legacy protection makes GET show `allow_force_pushes.enabled=false` + `allow_deletions.enabled=false` automatically.
+**Status**: ✅ resolved — protection state: `rhel9` = required check "delta budget + shell syntax + hadolint" + PR gate (0 approvals) + no force-push + no delete; `rhel9-dev` = PR gate + no force-push + no delete (frozen reference).
+**Evidence**: 2026-09-01 API exchanges (422 validation, 500 creation, legacy PUT 200, GET protection output).
+
+### F70 — `gh` mis-resolves fork repos to the parent + no `gh pr merge --ff` in this build
+In a clone/worktree of the fork, `gh repo view` reports `linuxserver/docker-baseimage-selkies` (the fork's PARENT) → `gh pr create` fails with misleading GraphQL errors ("No commits between rhel9 and rhel9-reconcile / Head sha can't be blank") even when the Compare API shows 7 commits ahead. Fix: always pass `--repo dGilli/docker-baseimage-selkies`. Also: `gh pr merge` in this build has no `--ff` flag (only `-m/-r/-s/--auto`) — fast-forward merges = local `git merge --ff-only <sha>` + `git push origin <branch>`; GitHub then auto-closes the open PR as MERGED.
+**Status**: ✅ resolved (usage convention, recorded in projectRules §Fork Maintenance).
+**Evidence**: PR #2 creation + merge flow, 2026-09-01.
+
+### F71 — f44's `readme-vars.yml` is an 8-line minimal file — the master-era "RHEL row" hunk is inapplicable (permanent cosmetic divergence)
+master's `readme-vars.yml` = 540-line template containing the distro support table where our `| RHEL | rhel9 |` row lived; f44's = `project_name` + a `full_custom_readme` that only links the upstream README (no table). The planned union resolution is dropped: f44's file taken verbatim → `[modified]` delta drops from 6 to 5 files. RHEL9 variant docs live in the memory bank, not the generated README; do NOT hand-edit `README.md` to add the row (generated file + would conflict on every sync).
+**Status**: ✅ resolved (accepted divergence).
+**Evidence**: `readme-vars.yml` @ upstream/fedora44 (full 8-line file); reconcile resolution table (task doc 010901).
+
+### F72 — f44's two behavioral changes are proven safe on RHEL9: svc-de wait-for-X removal + openbox without a session bus
+(a) f44's `svc-de/run` removed the `xset q` wait loop before resolution setup → xrandr-race risk. c9 evidence: `SELKIES_MANUAL_WIDTH/HEIGHT=1280x720` → Xvfb `-screen 0 1280x720x24` + xrandr current 1280x720 (mode `1280x720_60@59.86*`) applied, svc-de stable (no flap), NRP CPU pod stable 318s+. (b) f44's `startwm.sh` dropped `dbus-launch --exit-with-session` around `openbox-session` (with the svc-dbus removal) → openbox desktop with no session bus. RHEL9's `/usr/bin/openbox-session` execs `openbox --replace` directly (no dbus wrap — verified in the c8 image). c9 evidence: openbox+st up, no gnome-shell, RESTART_APP respawns st (watchdog exact-string match intact), no flapping.
+**Status**: ✅ resolved (verified on c9).
+**Evidence**: 2026-09-01 boot matrix (`selkies-recon-openbox`), NRP CPU pod checks.
+
+### F73 — untracked `memory-bank/` hard-blocks merges + stale phantom remote-tracking refs mislead branch decisions
+`memory-bank/` was tracked on `rhel9-dev` but untracked in the working checkout → any merge touching it aborts ("untracked working tree files would be overwritten"); session journal writes then DRIFT the untracked copy. Rule (A0 pattern): commit journal drift to the tracked branch BEFORE merging. Separately, local `origin/rhel9` (1298cb8) was a phantom remote-tracking ref (no `origin/rhel9` on the server — `git ls-remote` proves it) which made `git branch -vv` lie and seeded a force-push plan that turned out unnecessary (the push was plain branch creation). Always `git fetch --prune` before branch-state decisions.
+**Status**: ✅ resolved (process codified in projectRules §Fork Maintenance).
+**Evidence**: 2026-09-01 A0/A5 flow; Git Workflow Master verification notes (activeContext).
+
+### F74 — User commit-style preference (2026-09-01 rewording): upstream-house-style subjects + fixed `Bot Updating Memory Bank` journal heading
+After the reconcile landed, the user reworded the curated series subjects (rebase; **bodies preserved verbatim**) "to better fit in the established commit messages" — i.e. the UPSTREAM house style. Old → new (subject only):
+- `rhel9: phase-1 RHEL9 image (PLAN v4) — SLU-owned UBI9 base ...` → `add SLU-owned RHEL UBI9 base + Xvfb/openbox/selkies stack`
+- `rhel9: standard RHEL GNOME (gnome-shell 40.10) ... — task 2 + SLU wallpaper` → `add standard rhel gnome-shell \`40.10\` as default X11 desktop`
+- `rhel9: proot-apps 0.3.2 + RHEL9 bwrap stub (R1) — ...` → `refactor proot-apps \`0.3.2\` + RHEL9 bwrap stub`
+- `rhel9: phase 1.5 — NRP k8s deployment mapping ...` → `add NRP deployment mapping + production template drop-in`
+- `rhel9: GPU M1/M2 — --gpu E2E path, DISABLE_ZINK render ...` → `add oportunistic NRP GPU scheduling`
+- `memory-bank: project journal — ...` → `Bot Updating Memory Bank`
+- `maintenance: upstream delta tooling — ...` → `add upstream delta allowlist, delta report, and fork CI workflow tooling`
+- `rhel9: restore svc-dbus system bus — ...` → `restore svc-dbus system bus for rhel9 to fix GNOME 40 power indicator crashes`
+- `memory-bank: reconcile task closed — ...` → `Bot Updating Memory Bank`
+
+Pattern: (a) code subjects = lowercase imperative, concise, no variant prefix, no milestone framing, no em-dash; (b) MB journal commits = fixed bot-style heading `Bot Updating Memory Bank`; (c) bodies untouched.
+**Status**: ✅ codified 2026-09-01 in `projectRules.md#General` (old "messages reference the variant" rule replaced).
+**Evidence**: `rhel9` series `9dc267e..4e57e7a` (post-reword) vs `9ecf464..ab94c97` (pre-reword) — identical bodies, reworded subjects.
 
 ---
 

@@ -140,3 +140,14 @@
 **Alternatives**: fixed 1920x1080 GPU desktop (rejected — not dynamic); fixed 1024x768 GPU desktop (rejected — too small and not client-driven); CSS scaling mode (not needed for this fix).
 **Consequences**: `deploy/nrp/selkies-rhel9.yaml.template` and `apply-nrp-e2e.sh --gpu` render without manual resolution env; clean M2 rerun verified browser/protocol-driven resizing on the committed path.
 **References**: F63/F64; `activeContext.md#GPU-M2-clean-path-state`; `svc-xorg/run:23-34`; `svc-de/run:28-40`; selkies 348bc4f `settings.py`/`selkies.py`
+
+### 2026-09-01: Upstream baseline for `rhel9` = fedora44; curated re-land history; checkable delta budget
+**Status**: Approved (user assumption verified, PLAN v2 approved, two mid-build history instructions incorporated)
+**Context**: After milestone 1 (GPU on NRP), reconcile the working MVP (`rhel9-dev`, built on upstream **master** `69f4fc9`) with the fork's upstream for cheap future maintenance. Candidates: master (Debian — wrong variant, though rhel9-dev's tree was closest to it: 103 files/27- vs f44's 123/1576-), fedora44 (active EL line; `Dockerfile.rhel9` explicitly models its Dockerfile; our shared-tree edits were designed as no-ops on Fedora), el9 (true EL but deprecated 2026-05: `project_deprecation_status`, CI deleted — dead).
+**Decision**:
+1. `rhel9` branch = `upstream/fedora44` + SLU RHEL9 delta (the 17-conflict reconcile landed via PR #2 as a **curated 6-commit milestone series** — phase-1 / GNOME / R1 / phase-1.5 / GPU / journal — not the raw 35-commit dev history (user: messy) and not a single squash (user: keep traceability)).
+2. **Delta budget**: `[modified]` upstream files = the 5 allowlisted in `scripts/delta-allowlist.txt` (startwm.sh, init-nginx/run, init-selkies-config/run, svc-docker/run, selkies-proot), all distro-guarded no-ops on f44; all RHEL-specific content is ADDITIVE; generated files never hand-edited. Enforced by `scripts/upstream-delta.sh` + fork CI (required check on `rhel9`).
+3. Future sync = `git merge upstream/fedora44` (never rebase, never merge upstream/master — dual-lineage trap); conflicts bounded to the 5 allowlisted files; procedure in `build-deployment.md#Upstream-Sync-Procedure`.
+**Alternatives**: master baseline (track two divergent upstream lines; wrong-variant drift) | el9 (dead branch = guaranteed drift) | single-squash re-land (opaque, loses milestone traceability) | raw merge (messy history on the integration branch).
+**Consequences**: +6 additive svc-dbus files (F67 — f44's deletion breaks GNOME 40); permanent cosmetic README divergence (F71); f44's `GBM_BACKEND` export adopted verbatim, proven inert (F68); branch protection active (F69); f44 EOL ~May 2027 → quarterly review watches for a fedora45 re-baseline (el9 deprecation precedent).
+**References**: `tasks/2026-09/010901_reconcile-f44-baseline.md`, findings F67–F73, PR #2, tag `pre-rhel9-reconcile` (MVP revert point).
