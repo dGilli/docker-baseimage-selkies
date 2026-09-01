@@ -26,7 +26,7 @@
 #                      [--password-secret NAME] [--password-key K]
 #                      [--gpu] [--accept-nrp-utilization]
 #
-# Defaults: name=slu-rhel9-e2e  image=docker.io/dgilli/selkies-rhel9:v4-llvmpipe
+# Defaults: name=slu-rhel9-e2e  image=docker.io/dgilli/selkies-rhel9:v5-llvmpipe
 #           domain=nrp-nautilus.io (ADJUST to the current NRP ingress domain)
 #           dns=8.8.8.8/8.8.4.4  cpu=2  memory=4Gi  secrets per step 2/3
 #
@@ -44,7 +44,7 @@
 set -euo pipefail
 
 NS="" ; NAME="slu-rhel9-e2e"
-IMAGE="docker.io/dgilli/selkies-rhel9:v4-llvmpipe"
+IMAGE="docker.io/dgilli/selkies-rhel9:v5-llvmpipe"
 DOMAIN="nrp-nautilus.io"
 DNS1="8.8.8.8" ; DNS2="8.8.4.4"
 CPU="2" ; MEMORY="4Gi"

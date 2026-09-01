@@ -11,8 +11,9 @@
 #
 # IMAGE
 #   docker.io/dgilli/selkies-rhel9 — PRIVATE repo. Production pin:
-#     v4-llvmpipe (manifest sha256:b70d42e30c7bef93ca7f0a4bd6a46540d4dfd2eabff1eafadd1d82fbdec5d059,
-#     config sha256:5c835fb6a147… = local c8 build). :latest tracks dev.
+#     v5-llvmpipe (manifest sha256:6b9ee56628b7ee30d857cd16cf87ac46bf59ffe4ffce08523c8f31b67ae40e26,
+#     image c9 = a4e303101691, includes the svc-dbus restore; supersedes
+#     v4-llvmpipe = c8). :latest tracks dev.
 #   NRP namespace needs:
 #     kubectl -n <ns> create secret docker-registry dockerhub-dgilli \
 #       --docker-server=https://index.docker.io/v1/ \
