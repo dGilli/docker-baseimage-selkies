@@ -1,6 +1,6 @@
 # Active Context
 
-**Last Updated**: 2026-09-01 | **State Machine**: `GPU M2 CLOSED / GPU UTILIZATION + SELF-SERVICE START DOCUMENTED` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. 2026-09-01: live GPU-utilization monitoring documented (F65), `nvidia-smi dmon` + selkies NVENC verified on the running pod, and `apply-nrp-e2e.sh` now falls back to the existing namespace pull secret when local container auth is unavailable (F66). Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 DEFERRED**, pattern fixed: port official selkies boot-time userspace driver install (F58 + ADR). Next after M0–M2: R1 step 3 (SLU catalog), phase 2)
+**Last Updated**: 2026-09-01 | **State Machine**: `GPU M2 CLOSED / GPU UTILIZATION + SELF-SERVICE START DOCUMENTED` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. 2026-09-01: live GPU-utilization monitoring documented (F65), `nvidia-smi dmon` + selkies NVENC verified on the running pod, and `apply-nrp-e2e.sh` now falls back to the existing namespace pull secret when local container auth is unavailable (F66). Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 DEFERRED**, pattern fixed: port official selkies boot-time userspace driver install (F58 + ADR). Future roadmap tracked 2026-09-01: GPU desktop rendering, CLI/UX, selkies menu app installer, fork maintenance workflow, SLU image registry, docs)
 
 ## GPU M2 clean-path + utilization state (2026-08-31 → 2026-09-01)
 ### User directives
@@ -143,9 +143,15 @@ Interpretation:
 - Blender Cycles CUDA/OptiX render → `sm` / memory / compute-app PID should rise
 
 ### Next
-1. Commit the finalized deploy-path + memory-bank changes on `rhel9` (local commit; do not push unless asked).
-2. M2 is closed for the current GPU GNOME + NVENC + dynamic-resolution scope. M3 remains deferred.
-3. If Blender GPU rendering is needed later, treat it as a workload-specific follow-up: verify Cycles device selection and confirm `nvidia-smi dmon sm` rises during a render.
+1. M2 is closed for the current GPU GNOME + NVENC + dynamic-resolution scope. M3 remains deferred.
+2. If Blender GPU rendering is needed later, treat it as a workload-specific follow-up: verify Cycles device selection and confirm `nvidia-smi dmon sm` rises during a render.
+3. Future roadmap items are tracked in `productContext.md#Future-Roadmap-user-tracked-2026-09-01`:
+   - GPU use for desktop rendering
+   - project CLI/UX improvements
+   - selkies menu app installer fix
+   - proper project/fork maintenance workflow
+   - proper SLU image registry
+   - documentation expansion
 
 ## Git Reality (changed 2026-08-27)
 - `origin` = **user's fork** `git@github.com:dGilli/docker-baseimage-selkies.git` (commits/pushes allowed)

@@ -24,15 +24,25 @@
 - [x] 2026-08-28 — **Phase 1.5 (dev scope) DONE**: pushed `docker.io/dgilli/selkies-rhel9:latest` (first push OCI manifest `sha256:46246466…` = c7; **re-pushed same day with R1 c8 = manifest `sha256:b70d42e3…`, current**); verified pull-by-digest + cold-boot smoke (web 200 both ports, ws 101, wallpaper on fresh volume, certs auto-gen); NRP k8s mapping `deploy/nrp-selkies-rhel9.yaml` (single-port fit: ws same-origin via nginx `/websocket`); gates closed **F28** (NRP templates have no securityContext — rootful OK), **F30** (Docker Hub dev; production tag ceremony deferred by user), **F55** (docker default seccomp allows ptrace on kernel ≥4.8 — proot-apps R1 needs no seccomp override). See: `tasks/2026-08/280828_phase1-5-nrp-dev-push.md`
 
 ## In Progress
-- None for GPU M0–M2. The remaining action is the local commit requested by the user.
+- None for GPU M0–M2. Future roadmap items are tracked but not yet scoped as active work.
 
-## Next
-1. **GPU milestone M0–M2 is complete (F58–F66)**:
-   - **M0** — DONE: free-scheduling probe verified NVENC; landed on UCSC GTX 1080 Ti, not SLU L4.
-   - **M1** — DONE: `apply-nrp-e2e.sh --gpu` + NRP >40% gate + dry-run + cross-check + GPU `DISABLE_ZINK=true` + `Recreate` strategy + pull-secret fallback; no pixelflux pin.
-   - **M2** — DONE: NVENC works; GNOME on GPU nodes is fixed by GPU deploy env `DISABLE_ZINK=true`; dynamic resolution is verified by omitting `SELKIES_MANUAL_WIDTH/HEIGHT`; clean-path rerun and utilization monitoring documented.
-   - **M3 DEFERRED** (separate planning round): GPU desktop *rendering* (real Xorg + nvidia DDX) — pattern fixed = port official selkies boot-time userspace install (F58 + ADR); no in-image driver pin, no node targeting.
-2. **Optional workload follow-up**: if Blender GPU rendering is required, verify Cycles CUDA/OptiX device selection and confirm `nvidia-smi dmon sm` rises during a render. This is separate from the desktop/M2 scope.
-3. Housekeeping (whenever ready): optional — delete temp `selkies-password` secret in `slu-researchtechnologies-dgilli` (keep `dockerhub-dgilli` for future pulls). Re-deploy any time: `./deploy/nrp/apply-nrp-e2e.sh` (`--gpu` after M1). **Phase 1.5 is COMPLETE end-to-end**
-4. R1 step 3 (pending user decision): SLU catalog — frontend REPO_BASE_URL patch → SLU metadata.yml/icons (offline-capable); disabled: pruning, SLU apps as full OCI refs
-5. Phase 2 candidates (GPU now has its own track): extra desktop apps (libreoffice) · Wayland (pixelflux has a Smithay backend + zero-copy DMA-BUF→NVENC — research note, not a plan)
+## Next / Future Roadmap (user-tracked 2026-09-01)
+1. **GPU desktop rendering** — implement actual GPU use for desktop rendering (currently M3/deferred; NVENC works, desktop rendering is llvmpipe).
+2. **Project CLI/UX improvements** — make workstation lifecycle and operator workflows easier and clearer.
+3. **Fix selkies menu app installer** — repair the desktop menu/app installer flow (related to R1/proot-apps).
+4. **Project/fork maintenance workflow** — define proper upstream/fork branching, release, review, and maintenance process.
+5. **Proper SLU image registry** — replace personal/private Docker Hub flow with a proper SLU registry and release workflow.
+6. **Docs, docs, docs** — expand user, operator, maintainer, architecture, GPU, registry, and CLI documentation.
+
+Detailed roadmap context: `productContext.md#Future-Roadmap-user-tracked-2026-09-01`.
+
+## Completed context still relevant
+- **GPU milestone M0–M2 is complete (F58–F66)**:
+  - **M0** — DONE: free-scheduling probe verified NVENC; landed on UCSC GTX 1080 Ti, not SLU L4.
+  - **M1** — DONE: `apply-nrp-e2e.sh --gpu` + NRP >40% gate + dry-run + cross-check + GPU `DISABLE_ZINK=true` + `Recreate` strategy + pull-secret fallback; no pixelflux pin.
+  - **M2** — DONE: NVENC works; GNOME on GPU nodes is fixed by GPU deploy env `DISABLE_ZINK=true`; dynamic resolution is verified by omitting `SELKIES_MANUAL_WIDTH/HEIGHT`; clean-path rerun and utilization monitoring documented.
+  - **M3 DEFERRED** (separate planning round): GPU desktop *rendering* (real Xorg + nvidia DDX) — pattern fixed = port official selkies boot-time userspace install (F58 + ADR); no in-image driver pin, no node targeting.
+- **Optional workload follow-up**: if Blender GPU rendering is required, verify Cycles CUDA/OptiX device selection and confirm `nvidia-smi dmon sm` rises during a render. This is separate from the desktop/M2 scope.
+- Housekeeping (whenever ready): optional — delete temp `selkies-password` secret in `slu-researchtechnologies-dgilli` (keep `dockerhub-dgilli` for future pulls). Re-deploy any time: `./deploy/nrp/apply-nrp-e2e.sh` (`--gpu` after M1). **Phase 1.5 is COMPLETE end-to-end**
+- R1 step 3 (pending user decision): SLU catalog — frontend REPO_BASE_URL patch → SLU metadata.yml/icons (offline-capable); disabled: pruning, SLU apps as full OCI refs.
+- Phase 2 candidates (GPU now has its own track): extra desktop apps (libreoffice) · Wayland (pixelflux has a Smithay backend + zero-copy DMA-BUF→NVENC — research note, not a plan).

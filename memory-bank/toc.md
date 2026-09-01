@@ -1,13 +1,13 @@
 # Memory Bank — Table of Contents
 
 **Project**: `slu-docker-rhel-selkies` (SLU fork of linuxserver/docker-baseimage-selkies)
-**MB Version**: 2026-08 | **Last Updated**: 2026-08-31
+**MB Version**: 2026-08 | **Last Updated**: 2026-09-01
 
 ## Core Files
 | File | Purpose | Load When |
 |------|---------|-----------|
 | [projectbrief.md](./projectbrief.md) | Vision, goals, fork lineage | Complex tasks, orientation |
-| [productContext.md](./productContext.md) | User goals, support scope, upstream | Complex tasks |
+| [productContext.md](./productContext.md) | User goals, support scope, upstream, future roadmap | Complex tasks, planning |
 | [systemPatterns.md](./systemPatterns.md) | Architecture: build stages, s6 services, dual DE mode | Before arch changes |
 | [techContext.md](./techContext.md) | Stack: base images, services, pinned versions | Session start |
 | [activeContext.md](./activeContext.md) | Current sprint: RHEL9 support | Every session |
