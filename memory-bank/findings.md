@@ -1,0 +1,521 @@
+# Findings & Hurdles
+
+**Project**: `slu-docker-rhel-selkies` — RHEL9 variant work (branch `rhel9`)
+**Purpose**: Living registry of technical findings, verified facts, and hurdles discovered during RHEL9 research, plan vetting, and planning. One numbered entry per finding (`F01`…) with date, evidence, and status — referenceable as `findings.md#F16`. Full evidence lives in the memory bank (`memory-bank/`); this file is the cross-cutting tracker. New findings: append at the end of the matching section, keep numbering monotonic.
+
+**Status legend**: ✅ resolved | ⚠️ accepted degradation | 🚧 hurdle/constraint (workaround documented) | 🔓 open (needs decision or verification)
+
+**Last updated**: 2026-08-31
+
+---
+
+## Hurdles at a Glance
+
+| Hurdle | Entries |
+|--------|---------|
+| Image builds only on subscription-registered RHEL hosts (entitlement passthrough) | F03 |
+| 100% Red Hat-supported content impossible — desktop layer is EPEL-only | F04 |
+| RHEL9 package/tooling deltas break Fedora/master-derived assumptions (names, pins, flags) | F31-F35 |
+| No Xorg DDX drivers / VA-API GPU drivers in RHEL9 → GPU is phase 2 | F06, F07 |
+| RHEL9 packaging deltas vs Fedora/master (pkg names, selkies pins, tic flag, dnf provenance) | F31-F35, F40 |
+| Upstream CI = one branch per OS; our in-repo `Dockerfile.rhel9` deviates | F22 |
+| NRP deployment must permit root (LSIO-parity image is rootful) | F26 |
+
+---
+
+## 1. Base Image & Repos
+
+### F01 — `baseimage-el:9` is UBI9 + **Oracle Linux 9** repos, not registered RHEL
+Its Dockerfile disables the subscription-manager dnf plugin and ships `oracle-linux-ol9.repo` (`yum.oracle.com`). Every `dnf install` in a derived image pulls **Oracle** packages, not RHEL content.
+**Status**: ✅ resolved 2026-08-27 — rejected; PLAN v4 vendors an SLU-owned `base` stage `FROM registry.access.redhat.com/ubi9/ubi` with entitled RHEL repos.
+**Evidence**: `memory-bank/tasks/2026-08/270827_rhel9-vetting-plan-v4.md#2`
+
+### F02 — `docker-baseimage-el` is **deprecated and frozen**
+GitHub README: "This image is deprecated… it will not be updated." Pinned tag `9-version-f81d91cc` already behind `9-version-5a65c068`; no future CVE updates.
+**Status**: ✅ resolved — rejection driver for F01/F04 strategy.
+**Evidence**: vetting doc §2
+
+### F03 — Entitlement passthrough makes builds host-dependent
+podman on a registered RHEL host auto-mounts entitlements into builds → a local build can silently resolve packages from real RHEL repos while a remote build resolves elsewhere (non-reproducible split).
+**Status**: 🚧 hurdle — v4 makes entitled RHEL repos the *intended* source and captures per-package repo provenance (`dnf repoquery --installed --qf '%{name}|%{version}|%{reponame}'` → `package_versions_rhel9.txt`). Builds only on entitled RHEL hosts; runtime/NRP needs no entitlement.
+**Evidence**: vetting doc §2.4, §6.4; `memory-bank/build-deployment.md`
+
+### F04 — "Fully supported" ceiling: the desktop layer is EPEL-only
+Verified absent from all RHEL9 repos: `openbox st xsettingsd nginx-mod-fancyindex xdotool xclip xsel exo breeze-cursor-theme`. 100% Red Hat-supported content is impossible for this stack.
+**Status**: ⚠️ accepted — entitled RHEL BaseOS/AppStream/CRB wherever available + documented EPEL delta (provenance artifact is the evidence).
+**Evidence**: vetting doc §2.4
+
+### F05 — `rhel-guest-image` is not a container base
+`registry.redhat.io/rhel9/rhel-guest-image:latest` = qcow2 VM disk delivery vehicle (rhel-guest-image-9.8-20260428.2, 12 files, empty content-sets).
+**Status**: ✅ resolved (informational) — if a true RHEL9 container base is wanted later: `registry.redhat.io/rhel9/rhel-core:9` (subscription) vs UBI9 (free, current plan).
+**Evidence**: `memory-bank/activeContext.md#Guest-image-note`
+
+## 2. RHEL9 Package Availability (verified 2026-08-27 on subscribed RHEL 9.8 host, real cdn.redhat.com repos)
+
+### F06 — No Xorg DDX drivers in RHEL9
+AppStream has only `xorg-x11-drv-{dummy,evdev,fbdev,v4l,vmware,wacom}`; **no** intel/amdgpu/nouveau/qxl. Xorg rendering = modesetting driver only (kernel KMS + mesa DRI).
+**Status**: 🚧 hurdle — GPU work deferred to phase 2 (see F16, F29).
+**Evidence**: `memory-bank/activeContext.md#RHEL9-GPU-Facts`
+
+### F07 — No `mesa-va-drivers`, no `intel-media-driver` in RHEL9
+Intel VA-API encode = `libva-intel-hybrid-driver` (iHD, present ✅). `libva-nvidia-driver` (library only) present ✅; **no** nvidia driver packages/modules in enabled repos.
+**Status**: 🚧 hurdle — phase 2; NVIDIA would need out-of-repo driver provisioning.
+**Evidence**: `memory-bank/activeContext.md#RHEL9-GPU-Facts`
+
+### F08 — ~~`cvt` binary absent on EL9~~ **CORRECTED: `cvt`/`gtf` ARE in RHEL9, in `xorg-x11-server-Xorg`**
+Original vetting audit checked the Xvfb-only package set; the modeline binaries ship with the full Xorg server package (AppStream, entitled). Consequence: the original "accepted degradation" was actually a **hidden runtime break** (F41). Phase 1 now installs `xorg-x11-server-Xorg` (runs nothing — Xvfb stays the server) purely for `cvt`/`gtf`.
+**Status**: ✅ resolved 2026-08-27 (BUILD) — `xorg-x11-server-Xorg` added; `cvt 1024 768` verified producing a modeline; boot modeline step now applies (xrandr: current 1024x768, mode list populated). Upstream el9 shipped the same pair.
+**Evidence**: host `dnf provides cvt/gtf` → xorg-x11-server-Xorg; rebuild image 10bbd70e1502.
+**Evidence**: `memory-bank/activeContext.md#Verified-EL9-gaps`; vetting doc §5
+
+### F09 — `xdg-utils` **is** in RHEL9 AppStream (1.1.3)
+Previously mis-listed as an EL9 gap (defect D6).
+**Status**: ✅ resolved — added to v4 package list.
+**Evidence**: vetting doc §3 (D6)
+
+### F10 — EL9 CJK font package name differs from Fedora
+Fedora: `google-noto-cjk-ttc-fonts` → EL9: `google-noto-sans-cjk-ttc-fonts` (defect D3). dnf strict mode would abort the build on the wrong name.
+**Status**: ✅ resolved — renamed in v4.
+**Evidence**: vetting doc §3 (D3)
+
+### F11 — Core stack verified in entitled RHEL9 repos
+`pulseaudio` 15.0 (AppStream), `python3.11` + `python3.11-pip` (AppStream), `xorg-x11-server-Xvfb/Xorg/Xwayland/Xephyr`, `mesa-dri-drivers` (all DRI incl. llvmpipe/swrast), `nginx`, `glibc-all-langpacks` + `glibc-locale-source`, fonts. pixelflux/pcmflux 2.0.0 cp311 `manylinux_2_28` wheels exist on PyPI → selkies `348bc4f` installs with `--system-site-packages` venv, **no rust needed**.
+**Status**: ✅ verified.
+**Evidence**: vetting doc §5
+
+### F12 — rust 1.94.1 + cargo ARE in CS9 AppStream
+Enables phase-2 DEV_MODE parity (fedora44 model: rust/cargo + ffmpeg-devel + x264-devel + nodejs).
+**Status**: ✅ verified (not needed phase 1 — DEV_MODE gated off on non-Debian).
+**Evidence**: ops-log research 2026-08-27; `memory-bank/techContext.md`
+
+### F13 — No `sudo` group on EL9
+Debian base ships it; EL9 does not → `usermod -aG sudo abc` fails (defect D4).
+**Status**: ✅ resolved — `groupadd sudo` first; `%sudo … NOPASSWD` appended to `/etc/sudoers` main file (shared hardening sed targets that file).
+**Evidence**: vetting doc §3 (D4)
+
+### F31 — Fedora xorg package names don't exist in RHEL9
+`xorg-x11-xkb-utils` and `xorg-x11-font-utils` (Fedora names, used in f44/el9) → RHEL9 ships **`xkbcomp`** and **`mkfontscale`** (both AppStream, standalone pkgs). dnf strict mode: "No match for argument" (build cycle 1).
+**Status**: ✅ resolved — names fixed in `Dockerfile.rhel9`.
+**Evidence**: build cycle 1 failure; host `dnf provides xkbcomp` / `dnf provides mkfontdir` (2026-08-27).
+
+### F32 — selkies' C-extension deps require devel packages
+`evdev` (needs Python.h) and python-`xkbcommon` (needs libxkbcommon headers) build from sdist — **no PyPI wheels** for either. RHEL9 names: `python3.11-devel` + `libxkbcommon-devel` (both AppStream). Upstream el9/f44 both ship *-devel packages; v4 plan list was missing them.
+**Status**: ✅ resolved — added to `Dockerfile.rhel9` (build deps / runtime deps).
+**Evidence**: build cycles 2–3 failures; upstream el9 `Dockerfile:71` (python3-devel), f44 `Dockerfile:188`.
+
+### F33 — RHEL9 `/etc/sudoers` has no `%sudo` line
+Only `%wheel` (RHEL convention) — verified in ubi9 + sudo 1.9.17p2: `%wheel ALL=(ALL) ALL` + commented NOPASSWD-wheel. Appending `%sudo … NOPASSWD: ALL` is collision-free.
+**Status**: ✅ resolved (D4 approach confirmed safe).
+**Evidence**: ubi9 container probe 2026-08-27.
+
+### F34 — python-xkbcommon must be pinned `<1.5` on RHEL 9
+RHEL 9 ships libxkbcommon **1.4** on every stream; python-xkbcommon ≥1.5 references `XKB_CONTEXT_NO_SECURE_GETENV` (added in libxkbcommon 1.5) → cffi build fails. Pin `xkbcommon<1.5` resolves to **1.0.1**, which builds + imports clean against 1.4 (verified in ubi9 container). Same approach as upstream el9's sed (their production resolution).
+**Status**: ✅ resolved — third pyproject sed in `Dockerfile.rhel9` (rhel9-specific, documented inline).
+**Evidence**: build cycle 3 failure + ubi9 probe; el9 `Dockerfile:171`.
+
+### F35 — RHEL9 ncurses 6.2 `tic` has no `-i` flag
+`-i` (ignore unknown capabilities) arrived in ncurses 6.3; `tic -i` dumps usage + exits 1. Plain `tic` on `st.info` exits 0 (unknown-cap warnings to stderr) and compiles the terminfo fine.
+**Status**: ✅ resolved — `tic -i` → `tic` in `Dockerfile.rhel9`.
+**Evidence**: build cycle 4 failure (usage dump); ubi9 container probe.
+
+## 3. Boot-Critical Defects (vetting of PLAN v3, 2026-08-27)
+
+### F14 — D1: `legacy-cont-init` stub would **break** boot, not fix it
+s6-overlay 3.2.0.2 ships `legacy-cont-init` as a **builtin** of the `base` bundle (`/package/admin/s6-overlay-3.2.0.2/etc/s6-rc/sources/legacy-cont-init/` — verified in tarball). A user-level duplicate = s6-rc-compile failure at `/init`. This is why Debian master needs no stub for `svc-de`'s dependency.
+**Status**: ✅ resolved — stub dropped from v4 entirely.
+**Evidence**: vetting doc §3 (D1)
+
+### F15 — D2: missing `dbus-x11` → svc-de crash-loop
+Shared `startwm.sh` execs `dbus-launch`, which lives in `dbus-x11` on EL9 (AppStream 1.12.20). Upstream `el9` **and** `fedora44` both install it.
+**Status**: ✅ resolved — added to v4 package list.
+**Evidence**: vetting doc §3 (D2)
+
+### F16 — D5: stock EL9 Xvfb rejects `-vfbdevice` → crash-loop when `/dev/dri` is visible
+Shared `svc-xorg/run` passes `-vfbdevice` (the DRI3 wave of 2025-07-06/07 — commits `088cf3b`/`1fabcf6`/etc. added it to **every other** OS branch; upstream `el9`, branched 2025-06-19, **never had the block** — merge-base `4ec1948` has zero vfbdevice refs, and el9 never merged forward). Stock Debian/Fedora Xvfb carries the flag; **RHEL9 AppStream Xvfb does not — verified in our c8 image 2026-08-31: `Xvfb :99 -vfbdevice /dev/dri/renderD128` → `Unrecognized option`**. That is the true root cause of upstream's "DRI3 is not supported on el9" death (full forensics: `activeContext.md#Upstream-lessons`, F58). NRP GPU nodes **will** expose `/dev/dri`; local CPU tests pass only because no render node exists.
+**Status**: ✅ resolved — `ENV DISABLE_DRI3=true` in `Dockerfile.rhel9` (existing gate at `svc-xorg/run:19` clears the flag; no shared-tree edit). Deliberate rhel9 divergence, documented. D5 upgraded from inference to empirically observed.
+**Evidence**: vetting doc §3 (D5); live probe in `docker.io/dgilli/selkies-rhel9:latest`; upstream git (4ec1948 tree, 088cf3b not-ancestor-of-el9); `memory-bank/decisions.md`
+
+### F17 — D3/D4/D6 are build-breaking (not boot-breaking)
+Wrong CJK pkg name (F10), missing sudo group (F13), missing `xdg-utils` + xkbcomp (RHEL9 pkg `xkbcomp`, not Fedora's `xorg-x11-xkb-utils` — see F31).
+**Status**: ✅ resolved in v4 (xkbcomp name corrected at build time, F31).
+**Evidence**: vetting doc §3; F31
+
+## 4. X11 / Desktop / Audio
+
+### F18 — `PIXELFLUX_WAYLAND=true` waits forever in phase 1
+No labwc/wayland stack in rhel9 phase 1 → svc-de/svc-xorg block on a socket that never appears.
+**Status**: ⚠️ documented limitation (optional guard echo).
+**Evidence**: vetting doc §4; `memory-bank/testing-patterns.md`
+
+### F19 — `svc-dbus` runs `dbus-daemon --system` as `abc`
+EL9 `system.conf` `<user>dbus</user>` directive is ignored non-root — expected Debian-identical behavior, but **unverified on EL9**.
+**Status**: ✅ resolved 2026-08-27 (BUILD smoke) — `dbus-daemon --system` running as `abc` in the booted rhel9 container; openbox launched via `dbus-launch` (D2 fix working).
+**Evidence**: vetting doc §4
+
+### F20 — EL nginx ships a default `:80` server block
+Port unexposed; harmless.
+**Status**: ⚠️ accepted (optional cleanliness sed).
+**Evidence**: vetting doc §4
+
+### F21 — EPEL openbox 3.6.1 matches upstream el9's layout
+Ships `openbox-session` + Clearlooks theme dir; the rc.xml sed set is byte-identical to upstream el9 (`Dockerfile:201-210`). Auto-deps: `redhat-menus`, `python3-pyxdg` (dnf resolves).
+**Status**: ✅ verified.
+**Evidence**: vetting doc §5
+
+### F22 — EPEL `st` ships no installed terminfo
+Needs `tic -i /usr/share/doc/st/st.info` (+ `ncurses` for `tic`). Upstream el9 shipped st **without** the fix — likely broken there.
+**Status**: ✅ resolved — fix in v4 step 7. **BUILD note**: RHEL9 ncurses 6.2 has no `tic -i` flag (see F35) — plain `tic` used; `st` booted from openbox autostart in the smoke test.
+**Evidence**: vetting doc §5
+
+### F23 — Audio: NRP image uses PipeWire; LSIO stack uses PulseAudio
+pcmflux/selkies capture via pulse null sinks.
+**Status**: ⚠️ decision recorded — keep PulseAudio for LSIO parity.
+**Evidence**: `memory-bank/activeContext.md#E`
+
+### F24 — `COPY --from=xvfb / /` Xvfb trick is Debian-image-specific
+RPM variants `dnf install xorg-x11-server-Xvfb` directly (upstream el9 did the same).
+**Status**: ✅ resolved in v4 model.
+**Evidence**: `memory-bank/techContext.md`
+
+### F36 — llvmpipe IS present on RHEL9 via mesa 25.2.7 libgallium
+RHEL9 `mesa-dri-drivers` DRI dir is all symlinks to `libdril_dri.so` (no standalone `llvmpipe_dri.so`), BUT llvmpipe is compiled into `libgallium-25.2.7.so` and reachable via `GALLIUM_DRIVER=llvmpipe`. **Verified live in the built image** (C probe vs `Xvfb +iglx`): `GL_RENDERER: llvmpipe (LLVM 21.1.7, 256 bits)`, `GL_VERSION: 4.5` (MESA_GL_VERSION_OVERRIDE honored). The NRP llvmpipe trio works as designed on RHEL9.
+**Status**: ✅ verified 2026-08-27 (BUILD).
+**Evidence**: gl_probe C test (variants A/B) against image 1b3ad624966d.
+
+### F37 — s6-overlay 3.2.0.2 ships s6-rc **0.5.5.0** (new command naming)
+No `s6-rcstatus`/`s6-rc-kill` (0.1.x names): multicall `s6-rc` with `list|listall|diff|start|stop|change` (no `status` subcommand). Per-service state: `s6-svstat /run/service/<svc>`. Identical to upstream (baseimage-el used the same s6-overlay version).
+**Status**: ✅ informational — smoke procedure uses s6-svstat.
+**Evidence**: `ls /package/admin/s6-rc-0.5.5.0/command/` in built image.
+
+### F38 — `s6-svc -i` does not restart `sleep infinity`-style services
+SIGINT to the run-script bash is deferred while the foreground child (sleep) runs; use `s6-svc -t` (SIGTERM) for test restarts. Upstream pattern (svc-docker keep-alive) — not an image defect.
+**Status**: ✅ informational.
+**Evidence**: M6 dockerd-guard test 2026-08-27.
+
+### F41 — selkies runtime resize REQUIRES `cvt`/`gtf` at client-connect time (first manual test blocker)
+selkies 348bc4f's `gst_app_resize` path: when a client connects and reports its browser size (e.g. 960x948), selkies creates that X mode — `cvt W H` first, `gtf` fallback, then `xrandr --newmode/--addmode/--mode`. Missing both → `FATAL: Could not create extended mode ... No such file or directory: 'gtf'. Aborting.` → **video pipeline never starts → dashboard stuck on "Waiting for stream..."** (auth/clipboard/audio all worked; only video missing). Not caught by autonomous matrix because it triggers on the client handshake.
+**Status**: ✅ resolved 2026-08-27 (BUILD cycle 5) — `xorg-x11-server-Xorg` installed (carries cvt+gtf on RHEL9; F08 corrected). Rebuilt image 10bbd70e1502. **User re-test #2 PASS: desktop renders ("I got a shell!")** — manual QA complete.
+**Evidence**: selkies-rhel9-p1 logs 2026-08-27 ~19:20 (user manual test #1).
+
+### F42 — RHEL9 X11-utility packaging: no `xorg-x11-apps`, no `mesa-tools`, no `dejavu-fonts`
+Fedora names don't all exist on RHEL9: `dnf provides /usr/bin/xsetroot` → **`xorg-x11-server-utils`** (7.7-44.el9, AppStream); `glxinfo` → **`glx-utils`** (8.4.0, AppStream); `xterm` = separate AppStream pkg (already in phase 1); standard UI fonts = **`liberation-fonts`** (2.1.3, AppStream). `xorg-x11-apps`/`mesa-tools`/`dejavu-fonts` return no repo match on a 9.8 subscribed host.
+**Status**: ✅ verified 2026-08-27 (GNOME task research).
+**Evidence**: dnf provides/repoquery on RHEL 9.8 host.
+
+### F43 — RHEL9 standard GNOME = gnome-shell 40.10 (GNOME 40 generation), AppStream; app set verified
+Verified present in AppStream (2026-08-27): gnome-shell 40.10, gnome-session 40.1.1, gnome-settings-daemon 40.0.1, nautilus 40.2, gnome-terminal 3.40.3, gedit 40, gnome-calculator 40.1, gnome-screenshot 40, gnome-initial-setup 40.4, firefox (102/115/128/140 ESR generations; 140 latest). **`gnome-shell`'s resolved dep tree contains NO gnome-initial-setup/gdm/fonts** (repoquery --deps grep) → launching gnome-shell directly (F44 pattern) avoids the first-boot welcome screen. XFCE 4.18 is **EPEL-only** (xfce4-session 4.18.3, xfwm4 4.18.0, thunar 4.18.6, xfce4-panel 4.18.4, gucharmap 13.0.8, file-roller 3.40) → GNOME is the better-supported choice; user directed GNOME ("the standard Gnome WM rhel ships with").
+**Status**: ✅ verified 2026-08-27.
+**Evidence**: dnf repoquery on RHEL 9.8 host.
+
+### F44 — NRP's proven GNOME launch recipe (UBI9, v4-llvmpipe, in production)
+`slu-nrp-k8s-vm/selkies-rhel9-entrypoint.sh:233-234`: **`dbus-run-session -- /usr/bin/gnome-shell --x11 --sm-disable &`** — direct gnome-shell launch (NOT gnome-session), `--sm-disable` = no lock/resume. Env (their Dockerfile:27-36): `XDG_SESSION_TYPE=x11`, `XDG_SESSION_ID=<display#>`, `XDG_CURRENT_DESKTOP=GNOME`, `DESKTOP_SESSION=gnome` + llvmpipe trio. Cosmetic: `xsetroot -solid "#2d2d2d"` before compositor draws (line 221); GLX-ready wait via glxinfo (224-231); nautilus auto-start after delay (supervisord). **Delta vs us**: NRP runs Xorg-on-vt7; we plan gnome-shell on our Xvfb (F45: extension set matches; GNOME CI runs gnome-shell on Xvfb).
+**Status**: ✅ extracted as PLAN v1 reference 2026-08-27.
+**Evidence**: `selkies-rhel9-entrypoint.sh`, `Dockerfile.ubi9-selkies`, `supervisord-rhel9.conf`.
+
+### F45 — Our Xvfb already enables every extension gnome-shell's X11 backend needs
+`svc-xorg/run:42-50`: `+COMPOSITE +DAMAGE +GLX +RANDR +RENDER +MIT-SHM +XFIXES +XTEST +iglx +render` = exactly mutter/gnome-shell's X11 requirement set; GL under Xvfb+llvmpipe verified (F36: GL 4.5). No svc-xorg change needed for GNOME phase.
+**Status**: ✅ verified 2026-08-27 (code review + F36).
+**Evidence**: `root/etc/s6-overlay/s6-rc.d/svc-xorg/run:36-56`.
+
+### F46 — GNOME prerequisites already in phase-1 image (live audit 2026-08-28)
+Disposable run from `10bbd70e1502` (`podman run --rm --entrypoint` — live container `selkies-rhel9-p1` exited 137, SIGKILL): `/usr/bin/dbus-run-session` present — on EL9 it ships in **dbus-daemon** 1.12.20-8.el9 (not dbus-tools), already installed via dbus-x11 (D2) | `/usr/bin/xsetroot` present — xorg-x11-server-utils 7.7-44.el9, pulled by cycle-5's `xorg-x11-server-Xorg` (F41) | `glxinfo` **absent** → `glx-utils` is the only missing utility pkg | `rpm -qf` confirmed both providers.
+**Status**: ✅ verified 2026-08-28.
+**Evidence**: disposable-run probes against phase-1 image.
+
+### F47 — Finalized GNOME package delta (12 pkgs, mirrors NRP's exact set)
+`gnome-session gnome-session-xsession gnome-shell gnome-settings-daemon mutter nautilus gnome-terminal gedit gnome-calculator gnome-screenshot firefox glx-utils` — mirrors NRP `Dockerfile.ubi9-selkies:57-68,100` verbatim minus NRP-specific scope (libreoffice, pipewire*, coturn, dev toolchain, vulkan-tools — out of LSIO scope / already present / NRP-only). `mutter` = gnome-shell's hard compositor dep (explicit per NRP); `gnome-settings-daemon` kept for NRP parity (no logind in container → its power/idle plugins inert, acceptable); `gnome-session-xsession` harmless few-MB add. Resolution dry-run remains build step 1 (F31 lesson).
+**Status**: ✅ finalized 2026-08-28.
+**Evidence**: NRP Dockerfile.ubi9-selkies:57-68,99; phase-1 image audit (F46).
+
+### F48 — XDG_RUNTIME_DIR must be fresh+ephemeral for the gnome dbus session
+`init-selkies-config/run:41` sets `XDG_RUNTIME_DIR=/config/.XDG` — but `/config` is the **persistent VOLUME**: a stale `$XDG_RUNTIME_DIR/bus` socket from a previous container boot would make the new dbus-daemon fail to bind → broken gnome-shell session. NRP sidesteps this with per-boot `XDG_RUNTIME_DIR=/tmp/runtime-<user>` (their Dockerfile:40). **Decision**: startwm gnome branch exports `XDG_RUNTIME_DIR=/tmp/runtime-abc` + `mkdir -p && chmod 0700`, scoped to the gnome process tree only (rest of stack keeps `/config/.XDG` untouched).
+**Status**: ✅ design decision 2026-08-28.
+**Evidence**: `init-selkies-config/run:37-41` (VOLUME at `Dockerfile.rhel9` `VOLUME /config`), NRP Dockerfile.ubi9-selkies:40.
+
+### F49 — Root-owned /config/.cache from base init hooks breaks GNOME app caches
+LSIO base `init-mods-package-install` hook runs pip **as root** with `HOME=/config` (container ENV) at boot → leaves root-owned `/config/.cache/pip` (verified: 08:45 boot timestamp, root:root). GNOME apps (gnome-calculator currency cache, nautilus, firefox) then fail to write their `~/.cache/<app>` subtrees ("Permission denied"). Harmless in phase 1 (st/openbox don't use .cache). **Fix**: `init-selkies-config/run` (runs as root, after the base init chain per dependencies.d) normalizes `mkdir -p $HOME/.cache && chown -R abc:abc` — 6 lines, distro-neutral (no-op-equivalent on Debian).
+**Status**: ✅ fixed + verified 2026-08-28 (post-fix boot: /config/.cache abc:abc incl. re-chowned pre-existing pip dir; calc warnings gone).
+**Evidence**: container /config/.cache listings pre/post fix; `root-base/etc/s6-overlay/s6-rc.d/init-mods-package-install` chain position.
+
+### F50 — nautilus 40 (RHEL9) has NO `-d` flag; NRP's exact invocation is `nautilus --no-desktop`
+`-d` (manage-desktop daemonize) was removed in nautilus 3.x; `nautilus -d` → "Unknown option -d" on RHEL9 40.2. NRP's actual command (`supervisord-rhel9.conf:177`): `sleep 10; /usr/bin/nautilus --no-desktop 2>/dev/null || sleep infinity` — file-manager **window** (no desktop takeover). PLAN v2's "nautilus -d (desktop icons)" description was a misremembering of the NRP recipe; the flag itself was wrong. **Fix**: startwm gnome branch uses `nautilus --no-desktop 2>/dev/null &`.
+**Status**: ✅ fixed + verified 2026-08-28 (nautilus "Home" window present at boot, screenshot-confirmed).
+**Evidence**: NRP supervisord-rhel9.conf:177; live "Unknown option -d" error.
+
+### F51 — EL9 dbus-run-session drops the session socket in a random /tmp path
+With `XDG_RUNTIME_DIR=/tmp/runtime-abc` exported, `dbus-run-session -- gnome-shell` (cycle 1/2) still placed the session bus at `/tmp/dbus-glhhPJmPwp` (default session.conf `unix:tmpdir=/tmp` random), NOT `$XDG_RUNTIME_DIR/bus` → separately-launched apps (nautilus, autostart) cannot discover the bus. NRP avoids discovery (their nautilus env carries XDG_RUNTIME_DIR only + errors silenced). **Fix**: explicit `dbus-daemon --session --nofork --address="unix:path=$XDG_RUNTIME_DIR/bus" &` + exported `DBUS_SESSION_BUS_ADDRESS` in the startwm gnome branch — deterministic socket, all child apps inherit.
+**Status**: ✅ fixed + verified 2026-08-28 (socket at /tmp/runtime-abc/bus; calc + nautilus connect on the real bus at boot).
+**Evidence**: /tmp socket listings cycles 1-3; post-fix boot ps + working apps.
+
+### F52 — RHEL9's `org.gnome.desktop.background` picture-options enum uses `spanned`, not Fedora's `span`
+`gsettings set org.gnome.desktop.background picture-options span` → `The provided value is outside of the valid range` (rc=1) on RHEL9/GNOME 40; valid values: `none, wallpaper, centered, scaled, stretched, zoom, spanned` (older/Fedora naming differs: span/center/scale-down). A silent rejection inside startwm.sh (`|| true`) leaves the default `zoom` — visually identical at native 1920×1080, wrong at other resolutions. **Mechanism** (verified working): gnome-shell's background actor reads these gsettings keys directly (no gnome-settings-daemon needed); `gsettings set` from the startwm gnome branch (as abc, HOME=/config) writes the dconf user DB at `/config/.config/dconf/user` (volume-backed, abc-owned, 0600) — re-applied idempotently every boot, so no build-time dconf seeding is required.
+**Status**: ✅ fixed + verified 2026-08-28 (c6 `0325190e` exposed the bad value; c7 `99da8c14` sets `spanned`; screenshot shows SLU wallpaper full-desktop).
+**Evidence**: `gsettings range org.gnome.desktop.background picture-options` in-image; /tmp/opencode/wall-c7.png.
+
+### F53 — Dashboard "Install/Update/Remove app" = client-side simulation; real path is `cmd` → agent → `/selkies-proot` (fire-and-forget)
+The apps modal (right panel) fetches its catalog **from the user's browser** (not the container): `https://raw.githubusercontent.com/linuxserver/proot-apps/master/metadata/metadata.yml` + `img/<icon>` (hardcoded `REPO_BASE_URL` in `Sidebar.jsx:74-78` of the selkies frontend build, commit 348bc4f in our frontend stage). Install/Update/Remove postMessage `{type:"command", value:"/selkies-proot <action> <app>"}` → `selkies-ws-core.js` `case 'command'` → WebSocket `cmd,<command>` → **Python agent** `input_handler.py:2310` runs it via `subprocess.create_subprocess_shell(..., stdout=DEVNULL, stderr=DEVNULL)` — fire-and-forget, no feedback channel; the "Simulating install for: X" toast and the "Installed" badge (browser `localStorage prootInstalledApps`) are cosmetic by design. `/selkies-proot` (shared `root/selkies-proot`) execs `st $HOME/.local/bin/proot-apps "$@"`. **Our rhel9 variant does not ship `/proot-apps`** (upstream builds it at `Dockerfile:534-540` from the latest `linuxserver/proot-apps` release tarball — self-contained: static `proot` + `jq` + `ncat` + `proot-apps` bash script; no host packages needed) → the st window flashes and dies on missing binary (verified: user's own clicks appear in container logs as "Attempting/Successfully launched command: '/selkies-proot install filezilla'", PID recorded, no effect). The shared `init-selkies-config/run:260-273` already contains the `$HOME/.local/bin` bootstrap for `/proot-apps` (variant-guarded `[ -d /proot-apps ]`) — **shipping /proot-apps is the only image-side gap** for the tool chain.
+**Status**: ✅ shipped 2026-08-28 (R1 executed: c8 `5c835fb6a147`, commit `cc2c2b7` — `/proot-apps` 0.3.2 + bwrap stub guard; verified end-to-end on a fresh volume: `/selkies-proot install filezilla` → `run` → FileZilla 3.68.1 rendered). Operational facts in F56; optional step 3 (SLU catalog) remains a separate pending decision.
+**Evidence**: selkies source @348bc4f (Sidebar.jsx, selkies-ws-core.js, src/selkies/input_handler.py); container logs (filezilla install/update PIDs); proot-apps release 0.3.2 tarball inspection.
+
+### F54 — glycin apps (e.g. filezilla 3.68.1) hang at startup under proot: bwrap sandbox test has no timeout and bwrap hangs in proot's ptrace
+The proot-apps **filezilla** image is a NixOS-built Alpine rootfs with the new glycin 2.1.5 image backend (`libglycin-2.so.0`). At startup glycin runs a bwrap availability test: `bwrap --unshare-all --die-with-parent ... --seccomp <fd> /usr/bin/true` awaited via `command.output()` **with no timeout** (`glycin/src/sandbox.rs:726`, tag 2.1.5, gitlab.gnome.org/GNOME/glycin). Under proot, bwrap's namespace creation (user ns) collides with proot's ptrace emulation → **bwrap hangs forever** → filezilla never initializes (only a 10×10 placeholder X window, ~0% CPU; RUST_LOG=debug log ends at "Testing bwrap availability with:"). Reproduced under BOTH GNOME and openbox (WM is not the factor) and with a custom seccomp profile blocking `unshare` (bwrap still hangs — it falls through another path). **Verified fix**: replace the app rootfs's `bwrap` with a stub that prints the glycin-recognized string `bwrap: No permissions to create a new namespace` to stderr and exits 1 → test returns in ~9 ms → glycin logs `WARNING: Glycin running without sandbox.` → clean `NotSandboxed` fallback → **FileZilla 3.68.1 window rendered** (screenshot). Only apps bundling bwrap/glycin are affected; others install/run unaffected. A fast *error* from glycin's test also maps to "assume bwrap works" (`sandbox.rs:690` Err→false) — so the stub must produce the recognized stderr string, not just fail.
+**Status**: ✅ mechanism + fix verified 2026-08-28 (e-openbox-apps container, filezilla rootfs stubbed; FileZilla UI screenshot); image-level fix **deferred to roadmap R1** (user decision 2026-08-28).
+**Evidence**: /tmp/opencode/fz-stub.png (FileZilla window); RUST_LOG=debug logs (hang vs 9 ms return); glycin 2.1.5 source (sandbox.rs, pool.rs); `file`/`strings` on rootfs.
+
+### F55 — podman default seccomp allows ptrace + unshare (proot works here); stock docker default ALSO allows ptrace (kernel ≥4.8)
+Host podman 5.8.2 default profile `/usr/share/containers/seccomp.json` (SCMP_ACT_ERRNO default) **allows both `ptrace` and `unshare`** (verified: proot runs; `unshare -U true` rc=0) — this is why proot-apps is viable on this rig without special flags. **Stock docker (moby/profiles `main`, verified 2026-08-28 in phase 1.5)**: `ptrace` + `process_vm_readv/writev` are allowed with `includes.minKernel: 4.8` and **no capability requirement** → proot works under stock docker on any modern kernel; `unshare`/`setns` allowed only with CAP_SYS_ADMIN (plain unprivileged container → EPERM; irrelevant to R1 because F54's bwrap stub makes glycin apps independent of unshare). **No seccomp override needed in the NRP mapping** (noted in `deploy/nrp-selkies-rhel9.yaml` header).
+**Status**: ✅ verified 2026-08-28 (phase 1.5).
+**Evidence**: `jq` on /usr/share/containers/seccomp.json; in-container `unshare -U true`; moby/profiles main `seccomp/default.json` (syscalls entries: ptrace minKernel-4.8 cap-less; CAP_SYS_ADMIN-gated unshare/setns group); /tmp/opencode/docker-default-seccomp.json
+
+### F56 — R1 in the image: proot-apps 0.3.2 shipping facts (c8)
+Implemented 2026-08-28 (c8 `5c835fb6a147`, commit `cc2c2b7`):
+- **Version/actions**: proot-apps **0.3.2**; actions `run|install|uninstall|remove|get|update [name|full-ref|all]`. Installed rootfs dir = sanitized image ref: `/config/proot-apps/ghcr.io_linuxserver_proot-apps_filezilla/` (bare name → `ghcr.io/linuxserver/proot-apps:<name>`).
+- **Re-extract restores real bwrap**: `install`/`update` re-extracting the rootfs puts the real bwrap back; the **next** `/selkies-proot` invocation re-stubs it (loop-before-exec placement is intentional — verified with a marker-file simulation of a re-extract).
+- **Cosmetic noise**: the st window prints `s/system.socket: No such file or directory.` (proot notice, benign) before the glycin WARNING.
+- **pkill self-match trap** (test-rig fact): `pkill -f "proot-apps"` invoked via `sh -c` kills its own verifying shell (pattern matches its own command line) — use bracket patterns (`proot-app[s]`) in verify scripts.
+- **Dashboard open-app action** = `run` (install/update/remove are the modal buttons; `filezilla-pa` wrapper + app-grid entry are created by proot-apps itself on install).
+**Status**: ✅ shipped in c8.
+**Evidence**: fresh-volume install/run/update cycle; /tmp/opencode/{r1-fz.png,r1-fz2.png}; ps etimes chain (single new chain after clean kill).
+
+### F57 — NRP production integration = template drop-in (port 3000, USERNAME/PASSWORD auth, encoder NOT templated, imagePullSecret, emptyDir /config)
+Production NRP consumes desktop workspaces via `@@PLACEHOLDER@@` templates + a fixed sed pipeline + `kubectl apply` (contract evidenced by the **earlier `slu-nrp-k8s-vm` attempt — user-confirmed REFERENCE ONLY, not the current system**): 19-expression sed set (NAME/IMAGE/OS/CPU/MEMORY/GPU_*/ENCODER/FRAMERATE/VIDEO_BITRATE/PASSWORD_*/TURN_*/DNS_*/INGRESS_DOMAIN/AFFINITY), workspace-config values (INGRESS_DOMAIN=nrp-nautilus.io, Guaranteed QoS limits==requests 2CPU/4Gi default, cap 16/32Gi, `selkies-password` secret key `password`, DNS 8.8.8.8/8.8.4.4, haproxy ingress + auto TLS). Their reference rhel9 template was written for THEIR image and has **3 breaking mismatches vs ours**: (1) **ports** — exposes 8080; our web is 3000 (selkies ws is same-origin via nginx `/websocket` → internal 8082; 8082 never exposed) → dead-on-arrival workspace; (2) **auth** — sets `PASSWD`/`BASIC_AUTH_USER=rheluser` (foreign to our image, ignored); ours needs `USERNAME`+`PASSWORD` (nginx htpasswd) and **no PASSWORD = UI with NO auth** (init-nginx gates htpasswd on it); (3) **encoder** — reference config injects `SELKIES_ENCODER=vp8enc`; our selkies 348bc4f rejects it (`WARNING:root:Invalid value(s) 'vp8enc' for encoder. Using system default.` — verified in e-enc-test) and streams H.264 via the **pixelflux wheel** (bundled x264; system gstreamer x264enc plugin is ABSENT from the image and unneeded; vp8enc plugin present but outside selkies' allowed set x264enc|jpeg). `SELKIES_FRAMERATE/VIDEO_BITRATE/AUDIO_BITRATE` are ignored by our build (client-side settings only — their 30fps/4Mbps cap intent is unenforceable via env). Resolution: `deploy/nrp/selkies-rhel9.yaml.template` — **our repo owns the drop-in template**; uses only the known placeholder set (renderer-compatible), omits the encoder placeholder (immune to their config value), hardcodes `dockerhub-dgilli` imagePullSecret (private repo — their sed set has no pull-secret placeholder), `/config`+`/dev/shm` emptyDirs (ephemeral per user decision), no securityContext (F28).
+**Status**: ✅ **deployed + verified on the live NRP cluster 2026-08-28**. One-shot `deploy/nrp/apply-nrp-e2e.sh` (idempotent; pull secret built from local podman auth; `--dry-run` = read-only) applied into ns `slu-researchtechnologies-dgilli` (context `nautilus`; RBAC is ns-scoped — `default` 403s; no PSA labels → rootful OK per F28 gate). Pod `slu-rhel9-e2e-6d9b459d59-2p88b` **Running, 0 restarts**, node `nautilus-it-cpu15.fullerton.edu`. haproxy ingress live `https://slu-rhel9-e2e.nrp-nautilus.io` (~2 min after apply — initial 503 was controller reconcile timing, `ingress-controller UPDATE` events; http→302 https). **Auth gate verified: 401 anonymous / 200 `abc`+secret** (the F57 no-auth warning is real — always set the PASSWORD secret). Served page = selkies web client (Vite `div#app` + touch-gamepad) off our in-image **nginx/1.20.1** — full path TLS→haproxy→Service:8080→container:3000 proven. Desktop stream + SLU wallpaper + FileZilla install (R1) = **user manual verification PASSED 2026-08-28** ("It all looks great") — **Phase 1.5 production COMPLETE end-to-end** (image → private registry → template → cluster → browser). User tore down the pod post-verification; secrets remain in the ns (`selkies-password` temp — delete when unneeded; `dockerhub-dgilli` pull secret — keep for future pulls, the script refreshes it).
+**Evidence**: /tmp/opencode/rendered-test.yaml + cross-check output; e-enc-test logs (vp8enc rejection, pixelflux found, Initial Encoder x264enc); gst-inspect in image (vp8enc PRESENT / x264enc MISSING); nrp-workspace sed list (ref repo, lines 296–316); selkies 348bc4f setting definitions (encoder allowed set)
+
+### F58 — NRP GPU implementation facts: platform model, SLU inventory, pixelflux capability, official driver-mismatch pattern (Option F vetted)
+**Platform model (NRP docs "GPU Pods" 2026-08-19 + live node labels 2026-08-31)**: `nvidia.com/gpu: 1` = generic pool — "kubernetes will auto schedule your pod to the appropriate node. There's no need to specify the location manually"; max 2/pod (8 with jobs); **no runtimeClass anywhere** in docs or templates. **Special GPU types are SEPARATE gated resources** (`nvidia.com/a40|a100|rtxa6000|rtx8000|h100|h200|rtx6000bw|gh200|mig-small`): A100 quota **defaults to zero per namespace** (admin request form), H100/H200/GH200 not user-requestable → **a generic `nvidia.com/gpu` request can NEVER land on an A100 node** (this is why gpu07/08 show no `nvidia.com/gpu` capacity — they advertise `nvidia.com/a100`). Platform-sanctioned version constraint = `nodeAffinity` on `nvidia.com/cuda.driver.major` (`In`, even `Gt`) / `cuda.runtime.*`. shm defaults 64 MB without emptyDir (our template already mounts `/dev/shm` → defaults to half of memory request). "Labs connecting their hardware have preferential access" (SLU workloads overwhelmingly land on SLU nodes).
+**SLU nautilus GPU inventory (8 Ready nodes, ALL driver 595.71.05 / CUDA 13.2 — read via permitted `kubectl get nodes -o json`; node GET is 403, LIST works)**: gpu01–06 = **NVIDIA L4 × 16/node** (generic pool; Ada class → **NVENC-capable**); gpu07–08 = **A100 80GB PCIe × 4/node** (gated `nvidia.com/a100`; **A100 has NO NVENC/NVDEC** — compute only); ext-gpu01 = NotReady. Fleet-wide driver spread 580→610 (595 dominant).
+**pixelflux (our image's capture+encode engine)**: **v2.0.0 in c8** — auto-resolved because selkies 348bc4f's `pyproject.toml` declares a **FLOATING bare `"pixelflux"` dep** (upstream el9 had to pin `==1.4.7` in `6e6c321` when flows diverged → **pin ours, build hardening**). Backends: software x264 (bundled; proven on our CPU nodes), **NVIDIA NVENC (driver libs runtime-loaded — "no compile-time NVIDIA packages"; documented verified on drivers 570–595 = our 595.71.05 ✓)**, VA-API (irrelevant — NVIDIA-only fleet). X11 capture = XShm (CPU readback; zero-copy DMA-BUF is the Wayland backend only) → NVENC removes encode CPU, not capture. selkies 348bc4f forwards the knobs — verified in-image: `SELKIES_AUTO_GPU`/`AUTO_GPU` → `cs.auto_gpu` + `encode_node_index=-2` (`selkies.py:3243-3246`), `SELKIES_USE_CPU` → `cs.use_cpu` (`media_pipeline.py:281-284`), JPEG encoder forces CPU (`selkies.py:1457`). **Default (no envs) = auto-detect → M0–M2 need ZERO image changes**: L4/RTX landing → NVENC; A100 → x264 fallback (M0-verified behavior, unreachable via generic request anyway); CPU node → x264 (proven).
+**Driver-mismatch solution for M3 (user decision 2026-08-31: "solve it just like the selkies image does with an entrypoint")**: port the official `selkies-project/docker-selkies-glx-desktop` pattern (public repo, pushed 2026-08-10; glx+egl kept in sync): per-pod at boot → detect node driver version (`/proc/driver/nvidia/version` primary — kernel-provided via toolkit; `nvidia-smi --version` fallback) → download exact `NVIDIA-Linux-x86_64-<ver>.run` from `international.download.nvidia.com` (consumer path, fallback `/tesla/<ver>/` datacenter path — NVIDIA archives every version forever, so 580/595/610/**future majors** all work from one image) → `nvidia-installer --silent --no-kernel-module --no-nouveau-check --no-nvidia-modprobe --no-systemd --no-rpms --no-backup --no-check-for-alternate-installs` (userspace-only; `--no-rpms` = raw files, distro-agnostic, no dnf) → `/usr/local/nvidia/{bin,lib,lib64}` + `PATH`/`LD_LIBRARY_PATH` + manual OpenCL/Vulkan/EGL ICD jsons + `NVIDIA_VISIBLE_DEVICES=all` + `__GL_SYNC_TO_VBLANK=0` (headless) → `nvidia-xconfig` headless `xorg.conf` (busid from `nvidia-smi`, `--allow-empty-initial-configuration`, `AllowExternalGpus`, ModeValidation checks off) → real Xorg + nvidia DDX (always node-matched). Guard: skip install if toolkit already provides userspace (`command -v nvidia-xconfig`). **Drop in port**: `--install-compat32-libs` (no i386), `elFarto/nvidia-vaapi-driver` + gstreamer NVENC path (pixelflux uses `libnvidia-encode` directly), fakeroot (we're rootful, F28). **Keep failure fallback**: detect/download/install fail → Xvfb + llvmpipe (today's guaranteed path) — mismatch is gone by construction; download failure degrades instead of crash-looping. **Costs**: +2–5 min GPU-pod startup (per-pod download; `/config` ephemeral → no cross-pod cache), runtime egress to `download.nvidia.com`, GPU wait window ~600 s in the apply script. s6 integration: the install is a pre-`svc-xorg` step (our "entrypoint" = s6-overlay init).
+**Status**: ✅ M0 passed, M1 codified, M2 clean committed-path rerun passed — minimal GPU fix is deployment env `DISABLE_ZINK=true` + dynamic selkies resolution (F59–F64). GPU utilization monitoring and self-service start-path hardening recorded in F65–F66. **M3 remains deferred** as real Xorg + nvidia DDX work.
+**Evidence**: NRP docs gpu-pods (fetched 2026-08-31); `kubectl get nodes -o json` labels (2026-08-31); `github.com/selkies-project/docker-selkies-glx-desktop` `entrypoint.sh:43-127` + `Dockerfile:225-272`; `github.com/selkies-project/docker-selkies-egl-desktop` `entrypoint.sh` (same install block); in-image greps of `selkies.py`/`media_pipeline.py` (c8); `pip show pixelflux` in c8 (2.0.0); selkies 348bc4f `pyproject.toml` (floating pixelflux)
+
+### F59 — M0/M2 live GPU scheduling is cross-institution and multi-GPU, even with no node targeting
+M0 probe and M2 deployment both used only `nvidia.com/gpu: "1"` with **no nodeSelector/nodeAffinity**, as required. The scheduler did not guarantee SLU nodes:
+- M0 landed on `k8s-gpu-2.ucsc.edu`, GTX 1080 Ti, driver `580.159.04`; pixelflux auto-selected NVENC successfully.
+- M2 first landed on the same UCSC node, then later on `k8s-chase-ci-10.calit2.optiputer.net`, RTX 2080 Ti, driver `595.71.05`; pixelflux again auto-selected NVENC successfully.
+- The nodes expose multiple PCI GPU functions/devices to the guest (`/sys/bus/pci` is host-wide), even though only one NVIDIA render device is allocated to the pod.
+
+**Status**: ✅ verified live 2026-08-31; changes the assumption in F58 that generic GPU requests would practically land on SLU L4 nodes. NVENC itself worked on both observed consumer GPUs.
+**Evidence**: `kubectl get pod -o wide`; in-pod `nvidia-smi`; selkies logs showing `[NVENC] Initialized successfully` and `Stream settings active -> ... Encoder: NVENC`; node label queries.
+
+### F60 — GNOME on GPU nodes is broken by our `startwm.sh` zink hook, not by pixelflux NVENC
+`root/defaults/startwm.sh:4-8` runs before the desktop branch:
+```bash
+if which nvidia-smi && ls -A /dev/dri && [ "${DISABLE_ZINK,,}" == "false" ]; then
+  export LIBGL_KOPPER_DRI2=1
+  export MESA_LOADER_DRIVER_OVERRIDE=zink
+  export GALLIUM_DRIVER=zink
+fi
+```
+Our image sets `DISABLE_ZINK=false` at `Dockerfile.rhel9:191`, so on any GPU node with `/dev/dri`, GNOME/mutter is forced to use Mesa **zink** (OpenGL-on-Vulkan). Live GPU logs repeatedly showed:
+```text
+MESA: warning: zink: PERF WARNING! > 100 copy boxes detected
+```
+User symptoms under GNOME on GPU nodes:
+- Settings window exists in X but renders blank/tearing.
+- Firefox opens, then hangs the desktop/session.
+- CPU encode A/B (`SELKIES_USE_CPU=true`, `SELKIES_AUTO_GPU=false`) did **not** fix the blank/hung windows, proving the failure is desktop rendering/capture, not NVENC.
+- openbox (`DESKTOP=openbox`) worked, but the user explicitly rejected openbox as a valid GPU alternative.
+
+Verified live fix: set `DISABLE_ZINK=true` so `startwm.sh` does not override the image's llvmpipe environment. With that live patch, GNOME shell started cleanly, the zink PERF warning disappeared, and the user confirmed in the browser that GNOME, Settings, Firefox, and dynamic resolution work on the GPU node.
+
+**Status**: ✅ root cause, live fix, minimal-env reduction, and clean committed-path rerun verified 2026-08-31. The GPU deploy path now renders `DISABLE_ZINK=true` (F64). An image-level default change remains optional future hardening.
+**Evidence**: `root/defaults/startwm.sh:4-8`; `Dockerfile.rhel9:190-195`; live logs `/tmp/opencode/m2-*-gnome*.log` and `/tmp/opencode/m2-disable-zink-gnome.log`; user confirmation 2026-08-31 on pod `slu-rhel9-e2e-864c688c9-z5b8k`; clean-path pod `slu-rhel9-e2e-545d4555d5-zbfgb`.
+
+### F61 — `NVIDIA_DRIVER_CAPABILITIES` did not reduce the mounted NVIDIA graphics stack on the live NRP GPU node
+We attempted to limit the container to CUDA + NVENC + utility by setting:
+```text
+NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+```
+(`video` is the correct NVENC/NVDEC capability name; `nvenc` is not a valid value in the tested runtime behavior.)
+
+The pod still had the full NVIDIA graphics stack mounted, including:
+- `libGLX_nvidia.so.*`
+- `libEGL_nvidia.so.*`
+- `libnvidia-glcore.so.*`
+- `libnvidia-opencl.so.*`
+- `/etc/vulkan/icd.d/nvidia_icd.json`
+- `/usr/share/glvnd/egl_vendor.d/10_nvidia.json`
+- Xorg NVIDIA DDX files
+
+Therefore we cannot rely on this env var alone to keep GNOME/Mesa away from NVIDIA graphics libraries on this cluster. The in-image `startwm.sh` zink hook (F60) is still the primary trigger because it explicitly sets `GALLIUM_DRIVER=zink` and `MESA_LOADER_DRIVER_OVERRIDE=zink`.
+
+**Status**: 🚧 live cluster behavior recorded; need either cluster/runtime confirmation or in-image hardening (`DISABLE_ZINK=true` and/or Mesa env pins) for GPU desktops.
+**Evidence**: `mount | grep nvidia`, `ldconfig -p | grep nvidia`, and pod env inspection on `slu-rhel9-e2e-*` 2026-08-31.
+
+### F62 — Firefox 140 ESR on multi-GPU NVIDIA nodes has secondary sandbox/PCI issues; live debug env is not yet an accepted fix
+Firefox 140 ESR (`Dockerfile.rhel9:223`) on the observed multi-GPU NVIDIA nodes logged:
+```text
+Sandbox: CanCreateUserNamespace() clone() failure: ENOSPC
+Crash Annotation GraphicsCriticalError: |[0][GFX1-]: More than 2 GPUs detected via PCI, secondary GPU is arbitrary
+```
+Verbose runs also showed:
+```text
+[GFX1-]: More than 1 GPU vendor detected via PCI, cannot deduce vendor
+[GFX1-]: PCI candidate 0x10de/...
+[GFX1-]: PCI candidate 0x1a03/2000
+[GFX1-]: Fallback WR to SW-WR
+```
+Upstream Mozilla Bug 1988408 changed related non-fatal GPU PCI messages from graphics-critical errors to warnings in Firefox 146; RHEL9 AppStream currently provides Firefox 140 ESR in our image.
+
+Live debug env used for diagnosis:
+```text
+MOZ_DISABLE_CONTENT_SANDBOX=1
+MOZ_DISABLE_SOCKET_PROCESS_SANDBOX=1
+MOZ_DISABLE_RDD_SANDBOX=1
+MOZ_DISABLE_UTILITY_SANDBOX=1
+MOZ_DISABLE_GMP_SANDBOX=1
+MOZ_WEBRENDER=0
+MOZ_X11_EGL=0
+MOZ_LAYERS_ALLOW_SOFTWARE_GL=1
+```
+This made Firefox windows appear in several tests, and the user confirmed Firefox was usable in the live `DISABLE_ZINK=true` + dynamic-resolution state. The env set is still **not** an accepted production fix; the primary desktop blocker was GNOME/zink (F60), and Firefox now needs a smallest-env re-test before any `MOZ_*` hardening is codified.
+
+**Status**: ✅ basic Firefox verified without `MOZ_*` on the clean GPU path; the prior `MOZ_*` matrix is not required for launch/render/example.com. Non-fatal warnings remain (`clone() failure: ENOSPC`, `More than 2 GPUs detected via PCI`, Firefox security-feature notice), but they did not block M2. Revisit only if a specific web app or heavier GPU/Firefox workload regresses.
+**Evidence**: clean-path Firefox launch + screenshot, in-pod no-MOZ Firefox tests, user confirmation 2026-08-31, Bugzilla 1988408.
+
+### F63 — `SELKIES_MANUAL_WIDTH/HEIGHT` lock both Xvfb and selkies; dynamic resolution is the verified GPU E2E mode
+Fixed manual resolution was used during M2 debugging:
+```text
+SELKIES_MANUAL_WIDTH=1920
+SELKIES_MANUAL_HEIGHT=1080
+```
+That has two coupled effects:
+- `root/etc/s6-overlay/s6-rc.d/svc-xorg/run:23-34` starts Xvfb at exactly that size (`-screen 0 1920x1080x24`).
+- selkies `settings.py` forces `is_manual_resolution_mode=true` whenever manual width/height is set, and `selkies.py` then ignores client resize requests.
+
+Removing both variables restored the intended dynamic path:
+- Xvfb starts at the default virtual maximum (`15360x8640`, overridable by `MAX_RES`).
+- `svc-de/run` boot xrandr is `1024x768`.
+- selkies reports `is_manual_resolution_mode=false`, `manual_width=0`, `manual_height=0`.
+- the browser client drives runtime xrandr resizes via selkies' `cvt`/`gtf` + xrandr path.
+
+The user confirmed on 2026-08-31 that this dynamic state works on the live GPU pod: the resolution follows the browser, and Firefox/Settings are usable.
+
+**Status**: ✅ verified live 2026-08-31; GPU E2E deployments should avoid fixed manual resolution except as a diagnostic.
+**Evidence**: `svc-xorg/run:23-34`, `svc-de/run:28-40`, selkies 348bc4f `settings.py`/`selkies.py` in-image, live `xrandr --query`, user confirmation.
+
+### F64 — Minimal GPU GNOME E2E env is `DISABLE_ZINK=true` only; no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override
+Starting from the full live debug env, the GPU E2E deployment was reduced stepwise:
+1. Removed all `MOZ_*` vars while keeping the Mesa/EGL/Vulkan/NVIDIA-capabilities debug pins: GNOME, Settings, Firefox, dynamic xrandr, and NVENC still worked.
+2. Removed the explicit Mesa/EGL/Vulkan pins (`__GLX_VENDOR_LIBRARY_NAME`, `EGL_VENDOR_LIBRARY_FILENAMES`, `VULKAN_ICD_FILENAMES`, `MESA_LOADER_DRIVER_OVERRIDE`, `EGL_PLATFORM`, `MESA_VK_DISABLE`) while keeping `DISABLE_ZINK=true` + `NVIDIA_DRIVER_CAPABILITIES=compute,utility,video`: GNOME still rendered with `glxinfo` showing `Mesa llvmpipe`, and Firefox/Settings worked.
+3. Removed the `NVIDIA_DRIVER_CAPABILITIES` override, leaving the image default `all` plus only `DISABLE_ZINK=true`: GNOME, Settings, Firefox, dynamic resize, and NVENC still worked.
+
+The committed GPU deploy path was then updated to render exactly this minimal state:
+- `deploy/nrp/selkies-rhel9.yaml.template` adds GPU env + strategy placeholders.
+- `deploy/nrp/apply-nrp-e2e.sh --gpu` renders `DISABLE_ZINK=true` and `strategy.type=Recreate`.
+- A clean delete + `apply-nrp-e2e.sh --gpu` rerun produced pod `slu-rhel9-e2e-545d4555d5-zbfgb` on the same RTX 2080 Ti node.
+- In-pod selkies protocol test: `SETTINGS` at `1024x768`, then `r,1920x1080,primary`; xrandr changed to `1920x1080`, NVENC re-initialized at `1920x1080`, GNOME stayed up.
+
+Non-fatal residual warnings:
+- Firefox: `Sandbox: CanCreateUserNamespace() clone() failure: ENOSPC`, `More than 2 GPUs detected via PCI`, and the browser security-feature notice.
+- GNOME resize: transient Clutter allocation warnings.
+- xrandr: `Failed to get size of gamma for output screen`.
+
+**Status**: ✅ clean committed-path M2 verified 2026-08-31; this is the current minimal GPU GNOME configuration.
+**Evidence**: live reduction tests on pods `slu-rhel9-e2e-6dfbf68c5f-ntvrj` and `slu-rhel9-e2e-545d4555d5-zgp4p`, clean-path pod `slu-rhel9-e2e-545d4555d5-zbfgb`, rendered manifests, selkies logs, screenshots.
+
+### F65 — GPU utilization in this desktop image has three separate paths: llvmpipe display, NVENC stream, CUDA/compute workload
+On the running GPU pod `slu-rhel9-e2e-545d4555d5-gq5zf` (node `fiona-prg1.cesnet.cz`, RTX 2080 Ti, driver `595.71.05`), idle `nvidia-smi` showed:
+- `GPU-Util = 0%`
+- `Memory = 4 MiB`
+- no compute applications
+
+This is expected because:
+- the GNOME desktop and X11 app rendering use `llvmpipe` on the CPU, not the NVIDIA display GPU;
+- the NVIDIA GPU is used for **NVENC streaming** only while a selkies client is connected and frames are changing;
+- a workload such as Blender uses the NVIDIA GPU for compute only if it is explicitly configured for CUDA/OptiX and starts a GPU render.
+
+Live synthetic test:
+- started an in-pod selkies data-WebSocket client with `SETTINGS` at `1024x768`
+- sent resize to `1920x1080`
+- changed the root window color in a loop to force stream damage
+- `nvidia-smi dmon` showed power rising from ~19 W to ~63 W and brief `enc` activity
+- selkies logs showed `NVENC Encoder initialized successfully` and `Stream settings active -> Res: 1920x1080 | Encoder: NVENC`
+
+Manual monitoring pattern:
+```bash
+POD=$(kubectl -n <ns> get pod -l app=<app> -o jsonpath='{.items[0].metadata.name}')
+kubectl -n <ns> exec "$POD" -- nvidia-smi dmon -d 1
+kubectl -n <ns> exec "$POD" -- nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+kubectl -n <ns> exec "$POD" -- nvidia-smi --query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps,encoder.stats.averageLatency --format=csv
+kubectl -n <ns> logs -l app=<app> --tail=200 | grep -E "NVENC|Stream settings"
+```
+
+Interpretation:
+- `sm` rising → CUDA/graphics compute workload (e. g., a Cycles GPU render)
+- `enc` rising / NVENC logs → selkies video encoding
+- both idle at `0` → no active GPU workload; not necessarily a fault
+
+**Status**: ✅ documented and live-verified 2026-09-01.
+**Evidence**: `nvidia-smi` / `nvidia-smi dmon` output from pod `slu-rhel9-e2e-545d4555d5-gq5zf`, selkies logs, in-pod synthetic WebSocket client test.
+
+### F66 — `apply-nrp-e2e.sh` must work when local container auth is absent but the namespace already has the pull secret
+The one-shot NRP script originally required a local podman/docker auth file and failed with:
+```text
+ERROR: no local container auth file found (podman login dgilli?)
+```
+even when the target namespace already contained a valid `dockerhub-dgilli` imagePullSecret. This happened after the local rootless `/run/user/1000/containers/auth.json` file was no longer present.
+
+Fix:
+- if local container auth exists → recreate `dockerhub-dgilli` from the fresh local credential (previous behavior)
+- if local container auth is absent but `dockerhub-dgilli` already exists in the target namespace → log a warning and continue using the existing secret
+- if neither exists → fail with an explicit `podman login docker.io -u dgilli` instruction
+
+This makes the self-service start command usable from machines that do not currently hold the Docker Hub credential, as long as the namespace already has the pull secret.
+
+**Status**: ✅ implemented and dry-run verified for both CPU and GPU renders on 2026-09-01.
+**Evidence**: `deploy/nrp/apply-nrp-e2e.sh` pull-secret branch; CPU/GPU `--dry-run` output in `slu-researchtechnologies-dgilli`.
+
+### F25 — Upstream OS variants = one git branch per OS
+Each variant branch: own `Dockerfile`, `jenkins-vars.yml` (`release_tag` = `ls_branch` = branch name), own `root/` tree, feature-reduced where packaging demands (el9 = X11-only, no wayland files at all). CI builds only branches where branch name == `ls_branch` and `external_type: os` (`external_trigger_scheduler.yml:23-47`).
+**Status**: 🚧 convention — our `Dockerfile.rhel9`-in-repo + shared `root/` tree deviates; acceptable for local podman builds, revisit if syncing with upstream or using LS Jenkins.
+**Evidence**: `memory-bank/systemPatterns.md#7`; `memory-bank/decisions.md`
+
+### F26 — Upstream `el9` lived for months, died of GPU, deprecated 2026-05
+Worked with bot builds → deprecated after DRI3/mesa conflicts (`project_deprecation_status: true`, PR #159 + cstate #310). Used older selkies pin (`159656df`) with manual `pixelflux==1.4.7` pin and a python3.9 venv **without** `--system-site-packages`.
+**Status**: ✅ lessons applied — we stay on master parity (selkies `348bc4f`, python3.11 + `--system-site-packages`, auto-resolved pixelflux).
+**Evidence**: `memory-bank/activeContext.md#Upstream-lessons`; `memory-bank/techContext.md`
+
+### F27 — `fedora44` is the current RPM-family reference
+Same selkies pin `348bc4f` as master; root-tree deltas vs master = only 15 files (all EL-family adaptations: `init-nginx` conf.d swap, `startwm.sh` drops `dbus-launch`, dnf-ified DEV_MODE, custom `svc-dbus` deleted, intel VA block dropped from `init-video`).
+**Status**: ✅ used as the v4 model base.
+**Evidence**: `memory-bank/systemPatterns.md#8`
+
+## 6. Production (NRP) Gates
+
+### F28 — NRP's current image is non-root; LSIO-parity image is rootful
+NRP runs `USER rheluser`; our image runs s6 `/init` as root with services dropping to `abc`. **Resolved per user direction (2026-08-28) — verified in NRP's own artifacts**: `runAsNonRoot`/`securityContext` is NOT an NRP deployment limitation. NRP's `selkies-rhel9.yaml.template` + `selkies-glx/egl.yaml.template` + `rhel9-vm.yaml.template` contain **no** securityContext, no runAsNonRoot, no PSA annotations; their non-root posture is an *image design choice* of their supervisord image (README-rhel9.md "Non-Root Execution": "runs as `rheluser` (UID 1000) by default, following the principle of least privilege"), and their push pipeline (build-rhel9-selkies.sh → ghcr.io/slu-nrp via GHCR_TOKEN) has no root restrictions. A rootful image drops into the existing template as-is.
+**Status**: ✅ resolved 2026-08-28 (evidence above; no template change required). **Residual risk**: cluster-namespace-level Pod Security Admission (`pod-security.kubernetes.io/enforce=restricted`) cannot be inspected from this host — check the NRP namespace labels at first deploy; if enforced, options = baseline profile (still blocks root… actually restricted forbids root entirely) → would need `runAsUser` + our s6 chain to support non-root init (s6-overlay runs fine as non-root if the tree is owned — phase-2 candidate, NOT needed per templates today).
+**Evidence**: NRP repo templates (grep securityContext/runAsNonRoot/allowPrivilegeEscalation/podSecurity = 0 hits), README-rhel9.md:284, RHEL9-SELKIES-IMPLEMENTATION-COMPLETE.md:113, build-rhel9-selkies.sh:16/148; nrp-accounting MCP exposes no deployment docs (accounting queries only — user suggested, checked)
+
+### F29 — Phase-2 GPU: only RHEL-supported path is real Xorg + DDX (not Xvfb `-vfbdevice`)
+Not the Xvfb `-vfbdevice` trick — impossible on EL9 (F16, now empirically confirmed). Intel GL via modesetting + mesa DRI; Intel encode via `libva-intel-hybrid-driver`; **NVIDIA userspace = runtime-matched `.run` install (official selkies pattern, F58) — no RHEL-repo DDX exists (F06) and no build-time pin is needed**.
+**Status**: 🔓 open — **M3 remains DEFERRED** (real Xorg + nvidia DDX pattern decided; ADR in `decisions.md`). M0–M2 are complete: **M2 clean committed-path rerun passed** with `DISABLE_ZINK=true` / llvmpipe hardening (F60/F64), and GPU utilization monitoring / self-service start commands are documented (F65–F66). User decision 2026-08-31: openbox is **not** a valid alternative; GNOME must work on GPU.
+**Evidence**: `memory-bank/activeContext.md#RHEL9-GPU-Facts`; `memory-bank/findings.md#F58`; `memory-bank/decisions.md`
+
+### F30 — SLU registry/tag naming for the rhel9 image
+**User decision 2026-08-28 (dev phase)**: registry = **Docker Hub**, repo **`docker.io/dgilli/selkies-rhel9`**; tag = `latest` for dev (tag ceremony deliberately deferred until production-ready — upstream "no latest" convention applies to the public LSIO lineage, not the SLU dev namespace). Production registry/tag scheme = open (SLU registry + NRP template merge, later decision).
+**Pushed 2026-08-28**: `docker.io/dgilli/selkies-rhel9:latest` — first push = manifest `sha256:46246466…` (config = local c7 `99da8c1475f5`), verified pull-by-digest → identical image ID → cold-boot smoke (fresh volume: SSL cert gen, wallpaper dconf apply, web 200 both ports, ws 101, desktop overview screenshot). **Re-pushed same day with R1 c8** = manifest `sha256:b70d42e30c7bef93ca7f0a4bd6a46540d4dfd2eabff1eafadd1d82fbdec5d059` (config = c8 `5c835fb6a147`); dev registry currently serves the R1 image.
+**Format note (operational)**: podman pushes **OCI** manifests to Docker Hub; the local store's docker-format digest (`8df8f5f7…`) differs from the registry OCI manifest digest — pin by registry digest (recipe in `build-deployment.md`).
+**Production (user decisions 2026-08-28)**: keep the Docker Hub repo **private**; production pin = **`v4-llvmpipe`** (the earlier-attempt config already selected this name — "do what is cleanest"); c8 pushed under it (manifest `sha256:b70d42e3…`, identical to `:latest`); NRP namespace carries `imagePullSecret` `dockerhub-dgilli` (hardcoded in the template — F57). The SLU-owned-registry question is **retired** — the user's Docker Hub is both the dev and production registry.
+**Status**: ✅ fully resolved 2026-08-28 (dev `:latest` + production `v4-llvmpipe`, private + pull secret).
+**Evidence**: push/pull logs; /tmp/opencode/{reg-manifest.json,verify-pull.png}; `memory-bank/build-deployment.md`; user directives 2026-08-28 (dev + production decisions)
+
+### F39 — UBI9 os-release has `ID=rhel`
+DEV_MODE gate message renders "not supported on rhel"; the non-Debian gate works (M5 matrix test). Relevant for any future ID-based logic.
+**Status**: ✅ informational.
+**Evidence**: M5 test log, 2026-08-27.
+
+### F40 — dnf does not record INSTALLFROM in container-mode builds
+`dnf repoquery --installed --qf '%{reponame}'` returns `@System` for every package — the sm container-mode plugin does not write INSTALLFROM headers (tested `--setopt=installfrom=url:1` + dnf.conf, no effect). F03's provenance evidence is instead generated via **baseline diff vs vanilla ubi9/ubi (188 pkgs) + per-package GPG key** → 213 ubi9-base / 204 rhel9 / 24 epel.
+**Status**: ✅ resolved — `package_versions_rhel9.txt` generated 2026-08-27 (method noted in the artifact).
+**Evidence**: repo-root `package_versions_rhel9.txt`.
+
+---
+
+## Appendix: Local Test-Rig Facts (2026-08-27)
+- Host: RHEL 9.8 (Plow), subscription-registered (real cdn.redhat.com repos — authoritative for RHEL9 package questions); EPEL/CRB/VSCode/Chrome repos enabled
+- podman 5.8.2, rootless; cgroupv2 ✅; `mknod` gamepad nodes will fail → code's `touch` fallback handles it; sudo-podman/`--privileged` fallback documented
+- Scratch audit data (disposable): `/tmp/cs9_*.html`, `epel_*.html`, `audit_cs9.txt`, `/tmp/opencode/{el9,f44}.Dockerfile`
