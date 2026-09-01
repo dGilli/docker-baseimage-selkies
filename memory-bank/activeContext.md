@@ -1,13 +1,14 @@
 # Active Context
 
-**Last Updated**: 2026-08-31 | **State Machine**: `M2 GPU CLEAN-PATH VERIFIED — AWAITING COMMIT APPROVAL` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean committed-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 DEFERRED**, pattern fixed: port official selkies boot-time userspace driver install (F58 + ADR). Next after M0–M2: R1 step 3 (SLU catalog), phase 2)
+**Last Updated**: 2026-09-01 | **State Machine**: `GPU M2 CLOSED / GPU UTILIZATION + SELF-SERVICE START DOCUMENTED` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. 2026-09-01: live GPU-utilization monitoring documented (F65), `nvidia-smi dmon` + selkies NVENC verified on the running pod, and `apply-nrp-e2e.sh` now falls back to the existing namespace pull secret when local container auth is unavailable (F66). Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 DEFERRED**, pattern fixed: port official selkies boot-time userspace driver install (F58 + ADR). Next after M0–M2: R1 step 3 (SLU catalog), phase 2)
 
-## GPU M2 clean-path state (2026-08-31)
+## GPU M2 clean-path + utilization state (2026-08-31 → 2026-09-01)
 ### User directives
 - M0–M2 approved; do **not** pin `pixelflux` unless required.
 - R1 step 3 removed from active todos.
 - Openbox is **not** a valid GPU alternative; the goal is to get **GNOME working on GPU nodes**.
 - User approved continuing the post-live-verification troubleshooting/codification step on 2026-08-31.
+- On 2026-09-01 the user asked for the best manual way to verify GPU utilization and for self-service commands to start GPU and non-GPU workstations.
 
 ### Completed
 - **M0 passed**: free-scheduling `nvidia.com/gpu: 1` probe landed on UCSC GTX 1080 Ti / driver 580.159.04; `nvidia-smi`, `/proc/driver/nvidia/version`, HTTP 200, 0 restarts, and pixelflux NVENC all verified. Probe torn down.
@@ -15,6 +16,8 @@
 - **M2 live user verification passed (2026-08-31)**: after `DISABLE_ZINK=true` and removal of fixed `SELKIES_MANUAL_WIDTH/HEIGHT`, the user confirmed the desktop works like the previously good CPU state: resolution follows the browser, Firefox and Settings launch/display properly and are usable.
 - **Minimal-env reduction completed**: the full debug env was reduced stepwise. The smallest verified GPU GNOME + Firefox + dynamic-resolution + NVENC state is only deployment env `DISABLE_ZINK=true`; image defaults provide `NVIDIA_DRIVER_CAPABILITIES=all`, `LIBGL_ALWAYS_SOFTWARE=1`, `GALLIUM_DRIVER=llvmpipe`, `MESA_GL_VERSION_OVERRIDE=4.5`, and `DISABLE_DRI3=true`.
 - **Clean M2 rerun from committed deploy path passed**: deleted the e2e deployment/service/ingress, ran `./deploy/nrp/apply-nrp-e2e.sh --gpu --accept-nrp-utilization -n slu-researchtechnologies-dgilli`, and re-verified GNOME, Settings, Firefox, dynamic xrandr resize, and NVENC on the fresh pod.
+- **GPU utilization monitoring documented and live-tested (2026-09-01)**: on running pod `slu-rhel9-e2e-545d4555d5-gq5zf` (`fiona-prg1.cesnet.cz`, RTX 2080 Ti), idle `nvidia-smi` showed `0%` GPU / `4 MiB` / no compute apps, which is expected. A synthetic selkies client + screen-change test produced NVENC log confirmation and `nvidia-smi dmon` encoder/power activity. Blender viewport use is CPU/llvmpipe in this image; only a Cycles CUDA/OptiX render should appear as GPU compute.
+- **Self-service start path hardened (2026-09-01)**: `apply-nrp-e2e.sh` now reuses an existing `dockerhub-dgilli` pull secret in the target namespace when local podman/docker auth is unavailable, instead of failing before render.
 
 ### Root cause (F60, codified for GPU deploys)
 `root/defaults/startwm.sh:4-8` forces zink when `nvidia-smi` exists, `/dev/dri` is non-empty, and `DISABLE_ZINK=false`:
@@ -24,12 +27,14 @@ export GALLIUM_DRIVER=zink
 ```
 `Dockerfile.rhel9:191` sets `DISABLE_ZINK=false`, so GPU nodes push GNOME/mutter into Mesa zink unless the deployment overrides it. The committed GPU deploy path now sets `DISABLE_ZINK=true` (F64). A future image-level fix could change the default or make the `startwm.sh` hook respect the llvmpipe image intent, but that is not required for the current M2 deploy path.
 
-### Current clean-path deployment
+### Current live deployment (2026-09-01)
 Namespace: `slu-researchtechnologies-dgilli`
 Deployment: `slu-rhel9-e2e`
-Latest clean-path pod: `slu-rhel9-e2e-545d4555d5-zbfgb`
-Node: `k8s-chase-ci-10.calit2.optiputer.net`
+Running GPU pod observed: `slu-rhel9-e2e-545d4555d5-gq5zf`
+Node: `fiona-prg1.cesnet.cz`
 GPU: RTX 2080 Ti, driver `595.71.05`
+
+Earlier clean-path verification pod: `slu-rhel9-e2e-545d4555d5-zbfgb` on `k8s-chase-ci-10.calit2.optiputer.net`. Free scheduling can place the deployment on different GPU nodes.
 
 Deployment env rendered by the committed path:
 ```text
@@ -55,16 +60,92 @@ Dynamic resolution state (clean-path verified 2026-08-31):
 - selkies settings: `is_manual_resolution_mode=false`, `manual_width=0`, `manual_height=0`
 - in-pod selkies protocol resize from `1024x768` to `1920x1080` worked; `gnome-shell` stayed up; NVENC re-initialized at `1920x1080`.
 
-### Repo state pending commit
-- `deploy/nrp/apply-nrp-e2e.sh` — M1/M2 GPU path: `--gpu`, `--accept-nrp-utilization`, NRP >40% gate, dry-run support, `DISABLE_ZINK=true` render, `Recreate` strategy render, and rendered-manifest cross-checks.
+### Repo state being finalized
+- `deploy/nrp/apply-nrp-e2e.sh` — M1/M2 GPU path: `--gpu`, `--accept-nrp-utilization`, NRP >40% gate, dry-run support, `DISABLE_ZINK=true` render, `Recreate` strategy render, rendered-manifest cross-checks, and pull-secret fallback when local container auth is absent.
 - `deploy/nrp/selkies-rhel9.yaml.template` — GPU env/strategy placeholders and docs.
-- `memory-bank/...` — M2 clean-path state, F64, progress/README/ops-log/toc/decisions/systemPatterns updates.
+- `memory-bank/...` — M2 clean-path state, F64, GPU utilization monitoring F65, start-script fallback F66, and self-service commands.
 - No image rebuild is part of this M2 fix; the current private image remains `docker.io/dgilli/selkies-rhel9:v4-llvmpipe`.
 
-### Next after commit approval
-1. Commit the deploy-path + memory-bank changes on `rhel9` (local commit; do not push unless asked).
-2. Optional user browser pass on the fresh clean-path pod: `https://slu-rhel9-e2e.nrp-nautilus.io`, login `abc` + password from secret `selkies-password`.
-3. M2 can be marked fully closed after the commit + user sign-off. M3 remains deferred.
+### Self-service workstation commands
+From the repo root:
+
+```bash
+cd /home/its_admin/projects/slu-docker-rhel-selkies
+
+# GPU workstation, same app as the current e2e deployment
+./deploy/nrp/apply-nrp-e2e.sh \
+  --name slu-rhel9-e2e \
+  --namespace slu-researchtechnologies-dgilli \
+  --gpu \
+  --accept-nrp-utilization
+
+# Non-GPU workstation, separate app name
+./deploy/nrp/apply-nrp-e2e.sh \
+  --name slu-rhel9-cpu \
+  --namespace slu-researchtechnologies-dgilli
+```
+
+Separate named GPU + CPU pair:
+
+```bash
+# optional: free the current GPU e2e first
+kubectl -n slu-researchtechnologies-dgilli \
+  delete deployment,service,ingress \
+  -l app=slu-rhel9-e2e \
+  --ignore-not-found
+
+./deploy/nrp/apply-nrp-e2e.sh \
+  --name slu-rhel9-gpu \
+  --namespace slu-researchtechnologies-dgilli \
+  --gpu \
+  --accept-nrp-utilization
+
+./deploy/nrp/apply-nrp-e2e.sh \
+  --name slu-rhel9-cpu \
+  --namespace slu-researchtechnologies-dgilli
+```
+
+URLs:
+
+```text
+https://slu-rhel9-e2e.nrp-nautilus.io
+https://slu-rhel9-gpu.nrp-nautilus.io
+https://slu-rhel9-cpu.nrp-nautilus.io
+```
+
+Login: `abc` + password from secret `selkies-password`, key `password`.
+
+### GPU utilization checks
+```bash
+NS=slu-researchtechnologies-dgilli
+APP=slu-rhel9-e2e
+POD=$(kubectl -n "$NS" get pod -l app="$APP" -o jsonpath='{.items[0].metadata.name}')
+
+# live monitor: sm = CUDA/graphics compute, enc = NVENC, pwr = power
+kubectl -n "$NS" exec "$POD" -- nvidia-smi dmon -d 1
+
+# CUDA/compute process list
+kubectl -n "$NS" exec "$POD" -- \
+  nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+
+# encoder session stats
+kubectl -n "$NS" exec "$POD" -- \
+  nvidia-smi --query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps,encoder.stats.averageLatency --format=csv
+
+# selkies NVENC confirmation
+kubectl -n "$NS" logs -l app="$APP" --tail=200 | grep -E "NVENC|Stream settings"
+```
+
+Interpretation:
+- idle desktop → `0%` is normal
+- active selkies stream with changing pixels → `enc` / power / NVENC logs should show activity
+- Blender viewport only → GPU compute stays `0%` because desktop GL is llvmpipe
+- Blender Cycles CUDA/OptiX render → `sm` / memory / compute-app PID should rise
+
+### Next
+1. Commit the finalized deploy-path + memory-bank changes on `rhel9` (local commit; do not push unless asked).
+2. M2 is closed for the current GPU GNOME + NVENC + dynamic-resolution scope. M3 remains deferred.
+3. If Blender GPU rendering is needed later, treat it as a workload-specific follow-up: verify Cycles device selection and confirm `nvidia-smi dmon sm` rises during a render.
 
 ## Git Reality (changed 2026-08-27)
 - `origin` = **user's fork** `git@github.com:dGilli/docker-baseimage-selkies.git` (commits/pushes allowed)

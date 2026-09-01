@@ -287,7 +287,7 @@ Production NRP consumes desktop workspaces via `@@PLACEHOLDER@@` templates + a f
 **SLU nautilus GPU inventory (8 Ready nodes, ALL driver 595.71.05 / CUDA 13.2 — read via permitted `kubectl get nodes -o json`; node GET is 403, LIST works)**: gpu01–06 = **NVIDIA L4 × 16/node** (generic pool; Ada class → **NVENC-capable**); gpu07–08 = **A100 80GB PCIe × 4/node** (gated `nvidia.com/a100`; **A100 has NO NVENC/NVDEC** — compute only); ext-gpu01 = NotReady. Fleet-wide driver spread 580→610 (595 dominant).
 **pixelflux (our image's capture+encode engine)**: **v2.0.0 in c8** — auto-resolved because selkies 348bc4f's `pyproject.toml` declares a **FLOATING bare `"pixelflux"` dep** (upstream el9 had to pin `==1.4.7` in `6e6c321` when flows diverged → **pin ours, build hardening**). Backends: software x264 (bundled; proven on our CPU nodes), **NVIDIA NVENC (driver libs runtime-loaded — "no compile-time NVIDIA packages"; documented verified on drivers 570–595 = our 595.71.05 ✓)**, VA-API (irrelevant — NVIDIA-only fleet). X11 capture = XShm (CPU readback; zero-copy DMA-BUF is the Wayland backend only) → NVENC removes encode CPU, not capture. selkies 348bc4f forwards the knobs — verified in-image: `SELKIES_AUTO_GPU`/`AUTO_GPU` → `cs.auto_gpu` + `encode_node_index=-2` (`selkies.py:3243-3246`), `SELKIES_USE_CPU` → `cs.use_cpu` (`media_pipeline.py:281-284`), JPEG encoder forces CPU (`selkies.py:1457`). **Default (no envs) = auto-detect → M0–M2 need ZERO image changes**: L4/RTX landing → NVENC; A100 → x264 fallback (M0-verified behavior, unreachable via generic request anyway); CPU node → x264 (proven).
 **Driver-mismatch solution for M3 (user decision 2026-08-31: "solve it just like the selkies image does with an entrypoint")**: port the official `selkies-project/docker-selkies-glx-desktop` pattern (public repo, pushed 2026-08-10; glx+egl kept in sync): per-pod at boot → detect node driver version (`/proc/driver/nvidia/version` primary — kernel-provided via toolkit; `nvidia-smi --version` fallback) → download exact `NVIDIA-Linux-x86_64-<ver>.run` from `international.download.nvidia.com` (consumer path, fallback `/tesla/<ver>/` datacenter path — NVIDIA archives every version forever, so 580/595/610/**future majors** all work from one image) → `nvidia-installer --silent --no-kernel-module --no-nouveau-check --no-nvidia-modprobe --no-systemd --no-rpms --no-backup --no-check-for-alternate-installs` (userspace-only; `--no-rpms` = raw files, distro-agnostic, no dnf) → `/usr/local/nvidia/{bin,lib,lib64}` + `PATH`/`LD_LIBRARY_PATH` + manual OpenCL/Vulkan/EGL ICD jsons + `NVIDIA_VISIBLE_DEVICES=all` + `__GL_SYNC_TO_VBLANK=0` (headless) → `nvidia-xconfig` headless `xorg.conf` (busid from `nvidia-smi`, `--allow-empty-initial-configuration`, `AllowExternalGpus`, ModeValidation checks off) → real Xorg + nvidia DDX (always node-matched). Guard: skip install if toolkit already provides userspace (`command -v nvidia-xconfig`). **Drop in port**: `--install-compat32-libs` (no i386), `elFarto/nvidia-vaapi-driver` + gstreamer NVENC path (pixelflux uses `libnvidia-encode` directly), fakeroot (we're rootful, F28). **Keep failure fallback**: detect/download/install fail → Xvfb + llvmpipe (today's guaranteed path) — mismatch is gone by construction; download failure degrades instead of crash-looping. **Costs**: +2–5 min GPU-pod startup (per-pod download; `/config` ephemeral → no cross-pod cache), runtime egress to `download.nvidia.com`, GPU wait window ~600 s in the apply script. s6 integration: the install is a pre-`svc-xorg` step (our "entrypoint" = s6-overlay init).
-**Status**: ✅ M0 passed, M1 codified, M2 clean committed-path rerun passed — minimal GPU fix is deployment env `DISABLE_ZINK=true` + dynamic selkies resolution (F59–F64). **M3 remains deferred** as real Xorg + nvidia DDX work.
+**Status**: ✅ M0 passed, M1 codified, M2 clean committed-path rerun passed — minimal GPU fix is deployment env `DISABLE_ZINK=true` + dynamic selkies resolution (F59–F64). GPU utilization monitoring and self-service start-path hardening recorded in F65–F66. **M3 remains deferred** as real Xorg + nvidia DDX work.
 **Evidence**: NRP docs gpu-pods (fetched 2026-08-31); `kubectl get nodes -o json` labels (2026-08-31); `github.com/selkies-project/docker-selkies-glx-desktop` `entrypoint.sh:43-127` + `Dockerfile:225-272`; `github.com/selkies-project/docker-selkies-egl-desktop` `entrypoint.sh` (same install block); in-image greps of `selkies.py`/`media_pipeline.py` (c8); `pip show pixelflux` in c8 (2.0.0); selkies 348bc4f `pyproject.toml` (floating pixelflux)
 
 ### F59 — M0/M2 live GPU scheduling is cross-institution and multi-GPU, even with no node targeting
@@ -416,6 +416,58 @@ Non-fatal residual warnings:
 **Status**: ✅ clean committed-path M2 verified 2026-08-31; this is the current minimal GPU GNOME configuration.
 **Evidence**: live reduction tests on pods `slu-rhel9-e2e-6dfbf68c5f-ntvrj` and `slu-rhel9-e2e-545d4555d5-zgp4p`, clean-path pod `slu-rhel9-e2e-545d4555d5-zbfgb`, rendered manifests, selkies logs, screenshots.
 
+### F65 — GPU utilization in this desktop image has three separate paths: llvmpipe display, NVENC stream, CUDA/compute workload
+On the running GPU pod `slu-rhel9-e2e-545d4555d5-gq5zf` (node `fiona-prg1.cesnet.cz`, RTX 2080 Ti, driver `595.71.05`), idle `nvidia-smi` showed:
+- `GPU-Util = 0%`
+- `Memory = 4 MiB`
+- no compute applications
+
+This is expected because:
+- the GNOME desktop and X11 app rendering use `llvmpipe` on the CPU, not the NVIDIA display GPU;
+- the NVIDIA GPU is used for **NVENC streaming** only while a selkies client is connected and frames are changing;
+- a workload such as Blender uses the NVIDIA GPU for compute only if it is explicitly configured for CUDA/OptiX and starts a GPU render.
+
+Live synthetic test:
+- started an in-pod selkies data-WebSocket client with `SETTINGS` at `1024x768`
+- sent resize to `1920x1080`
+- changed the root window color in a loop to force stream damage
+- `nvidia-smi dmon` showed power rising from ~19 W to ~63 W and brief `enc` activity
+- selkies logs showed `NVENC Encoder initialized successfully` and `Stream settings active -> Res: 1920x1080 | Encoder: NVENC`
+
+Manual monitoring pattern:
+```bash
+POD=$(kubectl -n <ns> get pod -l app=<app> -o jsonpath='{.items[0].metadata.name}')
+kubectl -n <ns> exec "$POD" -- nvidia-smi dmon -d 1
+kubectl -n <ns> exec "$POD" -- nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+kubectl -n <ns> exec "$POD" -- nvidia-smi --query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps,encoder.stats.averageLatency --format=csv
+kubectl -n <ns> logs -l app=<app> --tail=200 | grep -E "NVENC|Stream settings"
+```
+
+Interpretation:
+- `sm` rising → CUDA/graphics compute workload (e. g., a Cycles GPU render)
+- `enc` rising / NVENC logs → selkies video encoding
+- both idle at `0` → no active GPU workload; not necessarily a fault
+
+**Status**: ✅ documented and live-verified 2026-09-01.
+**Evidence**: `nvidia-smi` / `nvidia-smi dmon` output from pod `slu-rhel9-e2e-545d4555d5-gq5zf`, selkies logs, in-pod synthetic WebSocket client test.
+
+### F66 — `apply-nrp-e2e.sh` must work when local container auth is absent but the namespace already has the pull secret
+The one-shot NRP script originally required a local podman/docker auth file and failed with:
+```text
+ERROR: no local container auth file found (podman login dgilli?)
+```
+even when the target namespace already contained a valid `dockerhub-dgilli` imagePullSecret. This happened after the local rootless `/run/user/1000/containers/auth.json` file was no longer present.
+
+Fix:
+- if local container auth exists → recreate `dockerhub-dgilli` from the fresh local credential (previous behavior)
+- if local container auth is absent but `dockerhub-dgilli` already exists in the target namespace → log a warning and continue using the existing secret
+- if neither exists → fail with an explicit `podman login docker.io -u dgilli` instruction
+
+This makes the self-service start command usable from machines that do not currently hold the Docker Hub credential, as long as the namespace already has the pull secret.
+
+**Status**: ✅ implemented and dry-run verified for both CPU and GPU renders on 2026-09-01.
+**Evidence**: `deploy/nrp/apply-nrp-e2e.sh` pull-secret branch; CPU/GPU `--dry-run` output in `slu-researchtechnologies-dgilli`.
+
 ### F25 — Upstream OS variants = one git branch per OS
 Each variant branch: own `Dockerfile`, `jenkins-vars.yml` (`release_tag` = `ls_branch` = branch name), own `root/` tree, feature-reduced where packaging demands (el9 = X11-only, no wayland files at all). CI builds only branches where branch name == `ls_branch` and `external_type: os` (`external_trigger_scheduler.yml:23-47`).
 **Status**: 🚧 convention — our `Dockerfile.rhel9`-in-repo + shared `root/` tree deviates; acceptable for local podman builds, revisit if syncing with upstream or using LS Jenkins.
@@ -440,7 +492,7 @@ NRP runs `USER rheluser`; our image runs s6 `/init` as root with services droppi
 
 ### F29 — Phase-2 GPU: only RHEL-supported path is real Xorg + DDX (not Xvfb `-vfbdevice`)
 Not the Xvfb `-vfbdevice` trick — impossible on EL9 (F16, now empirically confirmed). Intel GL via modesetting + mesa DRI; Intel encode via `libva-intel-hybrid-driver`; **NVIDIA userspace = runtime-matched `.run` install (official selkies pattern, F58) — no RHEL-repo DDX exists (F06) and no build-time pin is needed**.
-**Status**: 🔓 open — **M3 remains DEFERRED** (real Xorg + nvidia DDX pattern decided; ADR in `decisions.md`). M0–M2 are complete pending final commit/sign-off: **M2 clean committed-path rerun passed** with `DISABLE_ZINK=true` / llvmpipe hardening (F60/F64). User decision 2026-08-31: openbox is **not** a valid alternative; GNOME must work on GPU.
+**Status**: 🔓 open — **M3 remains DEFERRED** (real Xorg + nvidia DDX pattern decided; ADR in `decisions.md`). M0–M2 are complete: **M2 clean committed-path rerun passed** with `DISABLE_ZINK=true` / llvmpipe hardening (F60/F64), and GPU utilization monitoring / self-service start commands are documented (F65–F66). User decision 2026-08-31: openbox is **not** a valid alternative; GNOME must work on GPU.
 **Evidence**: `memory-bank/activeContext.md#RHEL9-GPU-Facts`; `memory-bank/findings.md#F58`; `memory-bank/decisions.md`
 
 ### F30 — SLU registry/tag naming for the rhel9 image

@@ -130,16 +130,16 @@ fi
 find_auth() {
   local f
   for f in "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/containers/auth.json" \
-           "$HOME/.config/containers/auth.json" \
-           "$HOME/.docker/config.json"; do
+            "$HOME/.config/containers/auth.json" \
+            "$HOME/.docker/config.json"; do
     [[ -r $f ]] && { echo "$f"; return 0; }
   done
   return 1
 }
 AUTHFILE="$(find_auth || true)"
-[[ -n ${AUTHFILE:-} ]] || die "no local container auth file found (podman login $DOCKERUSER?)"
-log "local auth: $AUTHFILE"
-CONFIG_JSON="$(python3 - "$AUTHFILE" "$DOCKERUSER" <<'PY'
+if [[ -n ${AUTHFILE:-} ]]; then
+  log "local auth: $AUTHFILE"
+  CONFIG_JSON="$(python3 - "$AUTHFILE" "$DOCKERUSER" <<'PY'
 import base64, json, sys
 path, want = sys.argv[1], sys.argv[2]
 data = json.load(open(path))
@@ -168,17 +168,24 @@ for key in HUB_KEYS:
     sys.exit(0)
 sys.exit(1)
 PY
-)" || die "no usable $DOCKERUSER docker.io credential in $AUTHFILE"
-TMPJSON="$(mktemp)" ; TMP_FILES+=("$TMPJSON")
-umask 077 ; printf '%s' "$CONFIG_JSON" > "$TMPJSON"
+  )" || die "no usable $DOCKERUSER docker.io credential in $AUTHFILE"
+  TMPJSON="$(mktemp)" ; TMP_FILES+=("$TMPJSON")
+  umask 077 ; printf '%s' "$CONFIG_JSON" > "$TMPJSON"
 
-if kubectl -n "$NS" get secret "$PULLSECRET" >/dev/null 2>&1; then
-  log "$PULLSECRET exists — replacing (fresh token)"
-  run kubectl -n "$NS" delete secret "$PULLSECRET"
+  if kubectl -n "$NS" get secret "$PULLSECRET" >/dev/null 2>&1; then
+    log "$PULLSECRET exists — replacing (fresh token)"
+    run kubectl -n "$NS" delete secret "$PULLSECRET"
+  fi
+  run kubectl -n "$NS" create secret generic "$PULLSECRET" \
+    --type=kubernetes.io/dockerconfigjson \
+    --from-file=.dockerconfigjson="$TMPJSON"
+else
+  if kubectl -n "$NS" get secret "$PULLSECRET" >/dev/null 2>&1; then
+    log "no local container auth found — using existing $PULLSECRET in $NS"
+  else
+    die "no local container auth file found and no existing $PULLSECRET in $NS (run: podman login docker.io -u $DOCKERUSER)"
+  fi
 fi
-run kubectl -n "$NS" create secret generic "$PULLSECRET" \
-  --type=kubernetes.io/dockerconfigjson \
-  --from-file=.dockerconfigjson="$TMPJSON"
 
 # --- 3. password secret -------------------------------------------------------
 if kubectl -n "$NS" get secret "$PSECRET" >/dev/null 2>&1; then

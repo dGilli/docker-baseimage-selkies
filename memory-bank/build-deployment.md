@@ -31,6 +31,23 @@ curl -sH "Authorization: Bearer $TOKEN" -H 'Accept: application/vnd.oci.image.ma
 - Image assumes `/config` volume; SSL certs auto-generated into `/config/ssl` on first boot (`init-nginx/run`).
 - GPU: pass `--gpus all` + `DRI_NODE`/`DRINODE` envs (upstream behavior; RHEL9 variant must keep the same env contract).
 - DinD: run `--privileged` (or mount docker socket) with `START_DOCKER=true` default.
+- NRP self-service (2026-09-01, F65–F66):
+  - GPU workstation:
+    ```bash
+    ./deploy/nrp/apply-nrp-e2e.sh \
+      --name slu-rhel9-gpu \
+      --namespace slu-researchtechnologies-dgilli \
+      --gpu \
+      --accept-nrp-utilization
+    ```
+  - Non-GPU workstation:
+    ```bash
+    ./deploy/nrp/apply-nrp-e2e.sh \
+      --name slu-rhel9-cpu \
+      --namespace slu-researchtechnologies-dgilli
+    ```
+  - `apply-nrp-e2e.sh` recreates `dockerhub-dgilli` from local container auth when available; otherwise it reuses the existing namespace pull secret if present and fails only if neither exists.
+  - GPU manifests render `nvidia.com/gpu: "1"`, `DISABLE_ZINK=true`, and `strategy.type: Recreate`; CPU manifests render none of those GPU-specific fields.
 
 ## Checklist for a new distro variant
 1. `Dockerfile.<distro>` mirroring stage architecture (`systemPatterns.md#1`)
