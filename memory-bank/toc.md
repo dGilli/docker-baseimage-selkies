@@ -5,7 +5,11 @@
 
 ## GH Tracking (issues + project board)
 
-All milestones and roadmap items are GitHub issues on `dGilli/docker-baseimage-selkies`, kept current on the **project board** `@dGilli's untitled project` (https://github.com/users/dGilli/projects/1, ID `PVT_kwHOAOLkSs4Bi2dv`). **Keep the board in sync as work moves** — columns Done / In Progress / Todo; kind labels `enhancement` / `documentation` / `process` / `bug` / `milestone`.
+All milestones and roadmap items are GitHub issues on `dGilli/docker-baseimage-selkies`, kept current on **two sibling project boards**. **Keep both in sync as work moves.**
+- **`RHEL9 Selkies MVP`** (https://github.com/users/dGilli/projects/1, ID `PVT_kwHOAOLkSs4Bi2dv`) — the issue tracker; columns Done / In Progress / Todo; kind labels `enhancement` / `documentation` / `process` / `bug` / `milestone`.
+- **`RHEL9 Selkies Maintenance & Tooling Plan`** (https://github.com/users/dGilli/projects/2, ID `PVT_kwHOAOLkSs4Bi3cB`) — the phased implementation plan (self-contained cards) for the fork-maintenance / supply-chain / board work; `Phase` field P0 / P1 / P2 / Won't Do. Source of truth for that plan.
+
+**Board convention:** the description box holds only a one-line summary; board-specific process (label/tag scheme, Phase semantics, won't-do list, traps, sync procedure) lives in each board's **README** (the operating guide), not the description.
 
 > `gh` needs scopes `repo` + `project`/`read:project`. Board ops: list `gh project item-list 1 --owner dGilli` · add `gh project item-add 1 --owner dGilli --url <issue-url>` · set Status `gh project item-edit --id <PVTI_…> --project-id PVT_kwHOAOLkSs4Bi2dv --field-id PVTSSF_lAHOAOLkSs4Bi2dvzhhs_Qo --single-select-option-id <opt>` (Todo `f75ad846`, In Progress `47fc9ee4`, Done `98236657`).
 
