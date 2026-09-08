@@ -17,4 +17,8 @@ Provide full-featured **web-native Linux desktop** container base images. Applic
 - `README.md` and `Jenkinsfile` are **generated** — never hand-edit (see `projectRules.md`).
 
 ## Success (for RHEL9 work)
-A `:rhel9` (or equivalent tag) image that boots the same desktop stack (X11 + Wayland modes), passes the same smoke test as the Debian image, and is built through the same CI/deploy flow.
+A `:rhel9` image that **mirrors upstream `fedora44`** as its maintenance reference — same architecture, shared `root/` tree, and behavior — with the **smallest possible RHEL9-specific delta**. It boots the same desktop stack (X11 today; Wayland is a phase-2 goal), passes the same smoke test, and is built through the same CI/deploy flow.
+
+**The delta is the primary success metric:** the `rhel9` branch = `upstream/fedora44` + a curated milestone series, held to a minimal-allowlisted-delta budget (a few modified upstream files, everything else additive-only), enforced by the delta gate (`scripts/upstream-delta.sh` + `scripts/delta-allowlist.txt`). A small diff keeps re-landing f44 updates cheap. RHEL9 substitutions apply only where forced (SLU-owned UBI9 base + entitled RHEL repos in place of the Fedora base, EL9 package names, `DISABLE_DRI3` divergence, etc.).
+
+> **GH tracking:** every milestone + roadmap item is a GitHub issue on `dGilli/docker-baseimage-selkies`, kept current on the **project board** (https://github.com/users/dGilli/projects/1). Canonical issue↔area mapping + board commands: `toc.md#GH-Tracking`.

@@ -26,16 +26,18 @@
 - [x] 2026-08-28 — **Phase 1.5 (dev scope) DONE**: pushed `docker.io/dgilli/selkies-rhel9:latest` (first push OCI manifest `sha256:46246466…` = c7; **re-pushed same day with R1 c8 = manifest `sha256:b70d42e3…`, current**); verified pull-by-digest + cold-boot smoke (web 200 both ports, ws 101, wallpaper on fresh volume, certs auto-gen); NRP k8s mapping `deploy/nrp-selkies-rhel9.yaml` (single-port fit: ws same-origin via nginx `/websocket`); gates closed **F28** (NRP templates have no securityContext — rootful OK), **F30** (Docker Hub dev; production tag ceremony deferred by user), **F55** (docker default seccomp allows ptrace on kernel ≥4.8 — proot-apps R1 needs no seccomp override). See: `tasks/2026-08/280828_phase1-5-nrp-dev-push.md`
 
 ## In Progress
-- None for GPU M0–M2. Future roadmap items are tracked but not yet scoped as active work.
+- None. M3 GPU desktop rendering verified 2026-09-08 (GH #4 → commit + DOCS pending).
 
 ## Next / Future Roadmap (user-tracked 2026-09-01)
-1. **GPU desktop rendering** — implement actual GPU use for desktop rendering (currently M3/deferred; NVENC works, desktop rendering is llvmpipe).
-2. **Project CLI/UX improvements** — make workstation lifecycle and operator workflows easier and clearer.
-3. **Fix selkies menu app installer** — repair the desktop menu/app installer flow (related to R1/proot-apps).
-4. **Project/fork maintenance workflow** — define proper upstream/fork branching, release, review, and maintenance process.
-5. **Proper SLU image registry** — replace personal/private Docker Hub flow with a proper SLU registry and release workflow.
-6. **Docs, docs, docs** — expand user, operator, maintainer, architecture, GPU, registry, and CLI documentation.
+All items are **GitHub issues** on `dGilli/docker-baseimage-selkies`, kept on the project board — canonical mapping + board commands: `toc.md#GH-Tracking`.
+1. ~~**GPU desktop rendering** → **GH #4**~~ — **DONE 2026-09-08**: Xorg + NVIDIA DDX via fakevt.so shim (F75) + boot-time module extract-only (selu-xorg-config). Verified on NRP: RTX 2080 Ti OpenGL 4.6.0, CUDA 13.2, 1920x1080 display. Branch `feat/m3-gpu-xorg-ddx` awaiting commit + PR.
+2. **Project CLI/UX improvements** → **GH #5** — make workstation lifecycle and operator workflows easier and clearer.
+3. **Fix selkies menu app installer** → **GH #6** — repair the desktop menu/app installer flow (related to R1/proot-apps; follow-on catalog = **#10**).
+4. **Project/fork maintenance workflow** → **GH #7** — define proper upstream/fork branching, release, review, and maintenance process.
+5. **Proper SLU image registry** → **GH #8** — replace personal/private Docker Hub flow with a proper SLU registry and release workflow.
+6. **Docs, docs, docs** → **GH #9** — expand user, operator, maintainer, architecture, GPU, registry, and CLI documentation.
 
+Also open (not in the 6-item list): **GH #11** aarch64 RHEL9 variant · **GH #12** Wayland (phase-2).
 Detailed roadmap context: `productContext.md#Future-Roadmap-user-tracked-2026-09-01`.
 
 ## Completed context still relevant

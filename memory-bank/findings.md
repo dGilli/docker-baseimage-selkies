@@ -571,6 +571,30 @@ Pattern: (a) code subjects = lowercase imperative, concise, no variant prefix, n
 
 ---
 
+### F75 — RHEL9 X 1.20.11 container VT fatal: `fakevt.so` LD_PRELOAD shim resolves `parse_vt_settings` + `xf86OpenConsole`
+RHEL9 X 1.20.11 (`xorg-x11-server 1.20.11-34.el9_8.3`) treats VT unavailability as fatal in containers (`parse_vt_settings: Cannot find a free VT` → `xf86OpenConsole: KDSETMODE KD_GRAPHICS failed Inappropriate ioctl for device`). Upstream X 1.20 has `-keeptty` early-return; the RHEL9 build does NOT. X 21+ (Ubuntu) handles this gracefully.
+
+**Solution**: `fakevt.so` LD_PRELOAD shim (`root/usr/local/src/fakevt.c`) that intercepts:
+- `open`/`open64`/`openat`/`openat64` for `/dev/ttyN` → redirects to `/dev/null` + tracks fd
+- `ioctl` on tracked fds: ALL requests return 0; pointer args filled with sensible defaults (VT_GETSTATE → `v_active=0`, KDGETMODE → `KD_GRAPHICS`, others → 0)
+- `ioctl` for KD/keyboard requests (0x5200, 0x5201, 0x4b3a, 0x4b44, 0x4b45) on ANY fd → return 0
+- `close` on tracked fds → untrack + forward
+
+**Key runtime insights** (from 20 preview iterations, in-shim debug trace):
+- X opens `/dev/tty0` (NOT `/dev/tty1-63` as upstream X 21 does)
+- First ioctl is `0x5600` (`_IO(0x56, 0)`) — non-standard, RHEL9-specific; arg is a pointer (fill 0)
+- Then `VT_GETMODE(0x5603)`, `VT_ACTIVATE(0x5606)`, `VT_SWITCH(0x5607)`, `VT_WAITACTIVE(0x5601)`, `VT_SETMODE(0x5602)`
+- Then non-standard keyboard ioctls `0x4b3a`, `0x4b44`, `0x4b45` (type 'K', not standard 'R')
+- **CRITICAL**: SET/ACTIVATE ioctls pass an INTEGER arg (VT number, mode), NOT a pointer. Dereferencing small values as pointers → segfault at address 0x1. Guard: `arg > 0x1000 && arg < 0x7FFFFFFFFFFF` before writing.
+- The NVIDIA DDX does NOT use VTs for rendering (GPU scanout); the shim only satisfies the console setup path.
+
+**Build**: `gcc -shared -fPIC -o /usr/local/lib/fakevt.so /usr/local/src/fakevt.c` (in Dockerfile, source deleted after build)
+**Usage**: `LD_PRELOAD=/usr/local/lib/fakevt.so /usr/libexec/Xorg :1 ... -config /etc/X11/xorg.conf`
+**Verified**: 2026-09-08 on NRP — Xorg + NVIDIA DDX (RTX 2080 Ti, OpenGL 4.6.0, CUDA 13.2), display 1920x1080, `nvidia-smi` Disp.A=On.
+**Status**: ✅ resolved, `m3-preview-20` (`bf408bf`).
+
+---
+
 ## Appendix: Local Test-Rig Facts (2026-08-27)
 - Host: RHEL 9.8 (Plow), subscription-registered (real cdn.redhat.com repos — authoritative for RHEL9 package questions); EPEL/CRB/VSCode/Chrome repos enabled
 - podman 5.8.2, rootless; cgroupv2 ✅; `mknod` gamepad nodes will fail → code's `touch` fallback handles it; sudo-podman/`--privileged` fallback documented
