@@ -36,6 +36,12 @@ root/etc/s6-overlay/s6-rc.d/svc-docker/run
 # etc.), we log + fall through to the same Xvfb exec. See findings F58 +
 # decisions 2026-08-31 (GPU driver mismatch — boot-time userspace install).
 root/etc/s6-overlay/s6-rc.d/svc-xorg/run
+# svc-selkies/run: M3 (2026-09-08) adds a 1-line wait-for-X-socket before the
+# selkies exec. M3 Xorg+NVIDIA takes 2-4 min for boot-time module download;
+# without this wait, pixelflux starts before the X display exists and falls
+# back to a 1024x768 virtual default (no stream). On upstream fedora44 (Xvfb),
+# the socket appears instantly so the loop exits on the first iteration (no-op).
+root/etc/s6-overlay/s6-rc.d/svc-selkies/run
 root/selkies-proot
 
 # Intentionally absent:

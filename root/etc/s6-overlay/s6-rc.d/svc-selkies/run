@@ -113,6 +113,10 @@ if [ ! -z ${DEV_MODE+x} ]; then
 fi
 
 # Start Selkies
+# Wait for X display to be ready (M3 Xorg+NVIDIA takes 2-4 min for module
+# download + driver init). The socket file appears early; xdpyinfo confirms
+# the server is actually accepting connections.
+until DISPLAY=:1 xdpyinfo >/dev/null 2>&1; do sleep 1; done
 GBM_BACKENDS_PATH=/usr/lib/x86_64-linux-gnu/gbm
 export GBM_BACKEND=nvidia-drm
 exec s6-setuidgid abc \

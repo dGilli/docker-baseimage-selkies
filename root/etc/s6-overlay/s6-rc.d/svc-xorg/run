@@ -9,15 +9,24 @@ fi
 rm -f /tmp/.X1-lock
 
 # M3 (SLU rhel9 fork addition): real X.Org + NVIDIA DDX path.
+#
+# RHEL9 ships X 1.20.11 whose xf86OpenConsole() makes VT ioctls fatal
+# (unlike upstream X 1.20 with -keeptty early-return, or X 21+ where
+# the console is optional). In a container there is no real VT.
+# We use LD_PRELOAD=/usr/local/lib/fakevt.so to intercept the VT
+# ioctls and return success — the nvidia DDX does NOT use VTs for
+# rendering (it uses the GPU's scanout engine directly).
+#
 # Guard (per projectRules guard-predicate rule): env-marker + file-exists.
 # On upstream fedora44 nothing sets XSERVER_BACKEND and /usr/local/bin/
 # selu-xorg-config does not exist — the block is a no-op there. When the
 # opt-in is set but the config script exits non-zero (no GPU, download
-# failure, xconfig failure), we fall through to the Xvfb path below
-# unchanged (preserves M2 behavior). See memory-bank F58 + 2026-08-31 ADR.
+# failure, etc.), we fall through to the Xvfb path below unchanged
+# (preserves M2 behavior). See memory-bank F58 + 2026-08-31 ADR.
 if [ "${XSERVER_BACKEND:-}" = "nvidia-xorg" ] \
    && [ -x /usr/local/bin/selu-xorg-config ] \
-   && [ -x /usr/libexec/Xorg ]; then
+   && [ -x /usr/libexec/Xorg ] \
+   && [ -x /usr/local/lib/fakevt.so ]; then
   if DRIVER="$(/usr/local/bin/selu-xorg-config 2>/tmp/selu-xorg-config.log)"; then
     echo "[svc-xorg] M3 Xorg path: driver=${DRIVER} (see /tmp/selu-xorg-config.log)"
     # Zink / Mesa software-GL env belongs to the applications in the session
@@ -34,17 +43,18 @@ if [ "${XSERVER_BACKEND:-}" = "nvidia-xorg" ] \
     if [ -n "${DISPLAY_NUM}" ] && ! pgrep -f "Xorg ${DISPLAY}( |$)" >/dev/null 2>&1; then
       rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
     fi
-    # Xorg creates these dirs only as root. This container is rootful (F28),
-    # but the mkdir is idempotent and harmless either way.
+    # X creates these dirs only as root. This container is rootful (F28).
     mkdir -pm1777 /tmp/.X11-unix /tmp/.ICE-unix 2>/dev/null || true
-    # Real Xorg wants a virtual terminal; give it a stable stand-in.
-    [ -e /dev/tty7 ] || ln -snf /dev/ptmx /dev/tty7 2>/dev/null || true
     # Run the server in the background so we can prove it answers before
-    # declaring readiness. If xdpyinfo doesn't succeed within 30s, kill the
-    # process and exit non-zero — s6 respawns, the `finish` file adds a 2s
-    # backoff, and the config script (idempotent) runs again.
-    /usr/libexec/Xorg "${DISPLAY}" vt7 -noreset -novtswitch -sharevts \
-      -nolisten tcp -ac -s 0 -dpms \
+    # declaring readiness. LD_PRELOAD fakevt.so intercepts the VT ioctls
+    # that X 1.20 makes fatal in containers.
+    # -ac: no X access control (nginx provides auth)
+    # -nolisten tcp: Unix socket only
+    # -s 0: no screensaver
+    # -dpms: disable power management (headless)
+    LD_PRELOAD=/usr/local/lib/fakevt.so \
+    /usr/libexec/Xorg "${DISPLAY}" \
+      -noreset -ac -nolisten tcp -s 0 -dpms \
       +extension COMPOSITE +extension DAMAGE +extension GLX +extension RANDR \
       +extension RENDER +extension MIT-SHM +extension XFIXES +extension XTEST \
       -config /etc/X11/xorg.conf -logfile /tmp/Xorg.log &

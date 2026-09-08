@@ -376,6 +376,13 @@ RUN \
 COPY /root /
 COPY --from=frontend /buildout /usr/share/selkies
 
+# M3: compile the VT shim for X.Org 1.20 in containers (RHEL9).
+# X 1.20's xf86OpenConsole() makes VT ioctls fatal; this LD_PRELOAD shim
+# intercepts them and returns success so Xorg can start headless. The nvidia
+# DDX does not depend on VTs for rendering (it uses the GPU scanout engine).
+RUN gcc -shared -fPIC -o /usr/local/lib/fakevt.so /usr/local/src/fakevt.c && \
+    rm -f /usr/local/src/fakevt.c
+
 # ports and volumes
 EXPOSE 3000 3001
 VOLUME /config
