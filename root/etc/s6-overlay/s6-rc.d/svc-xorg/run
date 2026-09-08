@@ -10,12 +10,15 @@ rm -f /tmp/.X1-lock
 
 # M3 (SLU rhel9 fork addition): real X.Org + NVIDIA DDX path.
 #
-# RHEL9 ships X 1.20.11 whose xf86OpenConsole() makes VT ioctls fatal
-# (unlike upstream X 1.20 with -keeptty early-return, or X 21+ where
-# the console is optional). In a container there is no real VT.
-# We use LD_PRELOAD=/usr/local/lib/fakevt.so to intercept the VT
-# ioctls and return success — the nvidia DDX does NOT use VTs for
-# rendering (it uses the GPU's scanout engine directly).
+# Two container-specific hurdles are solved here:
+# 1. VT: RHEL9 X 1.20.11 xf86OpenConsole() makes VT ioctls fatal (unlike
+#    upstream -keeptty or X 21+). fakevt.so LD_PRELOAD intercepts them.
+# 2. User: Xorg must run as the session user (abc), NOT root. Pixelflux
+#    captures via MIT-SHM (SysV shmat); X 1.20 denies cross-user attach
+#    (BadAccess). Running Xorg as abc makes shmat same-user → success.
+#    Matches selkies-project/docker-selkies-glx-desktop: "The X server
+#    runs as the session user, sharing a virtual terminal it never
+#    switches to."
 #
 # Guard (per projectRules guard-predicate rule): env-marker + file-exists.
 # On upstream fedora44 nothing sets XSERVER_BACKEND and /usr/local/bin/
@@ -45,19 +48,27 @@ if [ "${XSERVER_BACKEND:-}" = "nvidia-xorg" ] \
     fi
     # X creates these dirs only as root. This container is rootful (F28).
     mkdir -pm1777 /tmp/.X11-unix /tmp/.ICE-unix 2>/dev/null || true
-    # Run the server in the background so we can prove it answers before
-    # declaring readiness. LD_PRELOAD fakevt.so intercepts the VT ioctls
-    # that X 1.20 makes fatal in containers.
+    # Ensure the session user can access the GPU DRI nodes (Xorg runs as
+    # abc so that MIT-SHM capture by pixelflux (also abc) succeeds —
+    # cross-user shmat is denied by X 1.20).
+    for grp in $(stat -c "%G" /dev/dri/card* /dev/dri/renderD* 2>/dev/null | sort -u); do
+      id -nG abc 2>/dev/null | grep -qw "$grp" || usermod -aG "$grp" abc 2>/dev/null || true
+    done
+    # Run the server in the background AS THE SESSION USER (abc) so that
+    # pixelflux MIT-SHM capture works (same-user shmat). LD_PRELOAD
+    # fakevt.so intercepts the VT ioctls that X 1.20 makes fatal in
+    # containers.
     # -ac: no X access control (nginx provides auth)
     # -nolisten tcp: Unix socket only
     # -s 0: no screensaver
     # -dpms: disable power management (headless)
-    LD_PRELOAD=/usr/local/lib/fakevt.so \
-    /usr/libexec/Xorg "${DISPLAY}" \
-      -noreset -ac -nolisten tcp -s 0 -dpms \
-      +extension COMPOSITE +extension DAMAGE +extension GLX +extension RANDR \
-      +extension RENDER +extension MIT-SHM +extension XFIXES +extension XTEST \
-      -config /etc/X11/xorg.conf -logfile /tmp/Xorg.log &
+    su abc -s /bin/bash -c \
+      "LD_PRELOAD=/usr/local/lib/fakevt.so \
+       /usr/libexec/Xorg ${DISPLAY} \
+       -noreset -ac -nolisten tcp -s 0 -dpms \
+       +extension COMPOSITE +extension DAMAGE +extension GLX +extension RANDR \
+       +extension RENDER +extension MIT-SHM +extension XFIXES +extension XTEST \
+       -config /etc/X11/xorg.conf -logfile /tmp/Xorg.log" &
     XORG_PID=$!
     trap 'kill "${XORG_PID}" 2>/dev/null || true' TERM INT
     READY=false
@@ -66,7 +77,7 @@ if [ "${XSERVER_BACKEND:-}" = "nvidia-xorg" ] \
         echo "[svc-xorg] M3 Xorg died during startup (see /tmp/Xorg.log)" >&2
         exit 1
       fi
-      if timeout 2 xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1; then
+      if su abc -s /bin/bash -c "timeout 2 xdpyinfo -display ${DISPLAY}" >/dev/null 2>&1; then
         READY=true; break
       fi
       sleep 1
