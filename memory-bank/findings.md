@@ -5,7 +5,7 @@
 
 **Status legend**: ✅ resolved | ⚠️ accepted degradation | 🚧 hurdle/constraint (workaround documented) | 🔓 open (needs decision or verification)
 
-**Last updated**: 2026-09-01
+**Last updated**: 2026-09-08
 
 ---
 
@@ -592,6 +592,15 @@ RHEL9 X 1.20.11 (`xorg-x11-server 1.20.11-34.el9_8.3`) treats VT unavailability 
 **Usage**: `LD_PRELOAD=/usr/local/lib/fakevt.so /usr/libexec/Xorg :1 ... -config /etc/X11/xorg.conf`
 **Verified**: 2026-09-08 on NRP — Xorg + NVIDIA DDX (RTX 2080 Ti, OpenGL 4.6.0, CUDA 13.2), display 1920x1080, `nvidia-smi` Disp.A=On.
 **Status**: ✅ resolved, `m3-preview-20` (`bf408bf`).
+
+### F76 — Pixelflux MIT-SHM cross-user BadAccess: Xorg must run as the session user
+Pixelflux captures the X root window via **MIT-SHM** (SysV `shmget`/`shmat`). X 1.20's `SHMAttach` handler denies cross-uid shared memory attachment (`BadAccess`, error_code 10). When Xorg runs as root and pixelflux runs as abc (uid 911), the `shm_attach check` in `ScreenCapture.start_capture()` fails → no frames → "waiting for stream..." in browser.
+
+**Diagnosis path** (2026-09-08): XCB connectivity fine (C test: 1920x1080, depth 24) → x264 built into pixelflux .so (not GStreamer) → IS_WAYLAND=false → DRI3 present → direct `start_capture()` as root (same uid as Xorg) = frames OK → as abc (Xorg-root) = BadAccess → as abc (Xorg-abc) = **frames OK** (H.264 1920x1080, 37KB/43KB/3KB).
+
+**Fix**: `svc-xorg/run` launches Xorg via `su abc -s /bin/bash -c "LD_PRELOAD=... Xorg ..."` (session user). Defensive `usermod -aG` for DRI video groups. Readiness check runs as abc. Matches `selkies-project/docker-selkies-glx-desktop`: "The X server runs as the session user, sharing a virtual terminal it never switches to."
+
+**Status**: ✅ resolved, `m3-preview-23` (`c3d9e28`). Verified: GTX 1080 Ti, H.264 1920x1080 capture flowing.
 
 ---
 
