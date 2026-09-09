@@ -352,8 +352,11 @@ RUN \
   usermod -s /bin/bash abc && \
   groupadd sudo && \
   usermod -aG sudo abc && \
-  echo '%sudo ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers && \
-  echo "**** proot-apps ****" && \
+   echo '%sudo ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers && \
+   echo "**** machine-id (D-Bus / gnome-terminal) ****" && \
+   cat /proc/sys/kernel/random/uuid | tr -d "-" > /etc/machine-id && \
+   mkdir -p /var/lib/dbus && cp /etc/machine-id /var/lib/dbus/machine-id && \
+   echo "**** proot-apps ****" && \
   mkdir /proot-apps/ && \
   PAPPS_RELEASE=$(curl -sX GET "https://api.github.com/repos/linuxserver/proot-apps/releases/latest" \
     | jq -r '.tag_name') && \
