@@ -119,7 +119,11 @@ fi
 until DISPLAY=:1 xdpyinfo >/dev/null 2>&1; do sleep 1; done
 GBM_BACKENDS_PATH=/usr/lib/x86_64-linux-gnu/gbm
 export GBM_BACKEND=nvidia-drm
+# Stream transport: websockets (default, TCP through nginx) or webrtc
+# (UDP/SRTP, lower latency ~5-10ms; requires STUN/TURN reachability).
+# Override with SELKIES_STREAM_MODE=webrtc for low-latency gaming.
+STREAM_MODE="${SELKIES_STREAM_MODE:-websockets}"
 exec s6-setuidgid abc \
   selkies \
     --addr="localhost" \
-    --mode="websockets"
+    --mode="${STREAM_MODE}"

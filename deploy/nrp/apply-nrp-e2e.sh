@@ -63,7 +63,7 @@ DOMAIN="nrp-nautilus.io"
 DNS1="8.8.8.8" ; DNS2="8.8.4.4"
 CPU="2" ; MEMORY="4Gi"
 PSECRET="selkies-password" ; PKEY="password"
-DRY=0 ; GPU=0 ; GPU_XORG=0 ; ACCEPT_NRP_UTILIZATION=0
+DRY=0 ; GPU=0 ; GPU_XORG=0 ; WEbrtc=0 ; ACCEPT_NRP_UTILIZATION=0
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="$SELF/selkies-rhel9.yaml.template"
 PULLSECRET="dockerhub-dgilli"
@@ -84,6 +84,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run)           DRY=1; shift;;
     --gpu)               GPU=1; shift;;
     --gpu-xorg)          GPU=1; GPU_XORG=1; shift;;
+    --webrtc)            WEbrtc=1; shift;;
     --accept-nrp-utilization) ACCEPT_NRP_UTILIZATION=1; shift;;
     -h|--help)           sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) echo "unknown arg: $1 (try --help)" >&2; exit 2;;
@@ -234,6 +235,8 @@ if [[ $GPU -eq 1 ]]; then
   GPU_REQUESTS=$'            nvidia.com/gpu: "1"'
   GPU_ENV='        - name: DISABLE_ZINK\n          value: "true"'
   GPU_ENV="${GPU_ENV}\n        - name: SELKIES_AUTO_GPU\n          value: \"true\""
+  GPU_ENV="${GPU_ENV}\n        - name: SELKIES_DAMAGE_THRESHOLD\n          value: \"5\""
+  GPU_ENV="${GPU_ENV}\n        - name: SELKIES_DAMAGE_DURATION\n          value: \"10\""
   STRATEGY='  strategy:\n    type: Recreate'
   if [[ $GPU_XORG -eq 1 ]]; then
     # M3 opt-in: in-image svc-xorg/run sees this + /usr/local/bin/selu-xorg-config
@@ -241,6 +244,10 @@ if [[ $GPU -eq 1 ]]; then
     # driver. See findings F58 and the 2026-08-31 ADR.
     GPU_ENV="${GPU_ENV}\n        - name: XSERVER_BACKEND\n          value: \"nvidia-xorg\""
   fi
+fi
+# WebRTC transport (lower latency than WebSocket; requires UDP/STUN reachability)
+if [[ $WEbrtc -eq 1 ]]; then
+  GPU_ENV="${GPU_ENV:-}\n        - name: SELKIES_STREAM_MODE\n          value: \"webrtc\""
 fi
 # (values must not contain the sed delimiter '|' — none of the defaults do)
 sed -e "s|@@NAME@@|$NAME|g" \

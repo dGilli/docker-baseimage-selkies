@@ -304,6 +304,11 @@ RUN \
     /lsiopy && \
   pip install . && \
   pip install setuptools && \
+  echo "**** patch selkies: damage threshold configurable ****" && \
+  sed -i 's/cs.damage_block_threshold = 10/cs.damage_block_threshold = int(os.environ.get("SELKIES_DAMAGE_THRESHOLD", "10"))/' \
+    /lsiopy/lib/python3.11/site-packages/selkies/selkies.py && \
+  sed -i 's/cs.damage_block_duration = 20/cs.damage_block_duration = int(os.environ.get("SELKIES_DAMAGE_DURATION", "20"))/' \
+    /lsiopy/lib/python3.11/site-packages/selkies/selkies.py && \
   echo "**** install selkies interposer ****" && \
   cd addons/js-interposer && \
   gcc -shared -fPIC -ldl \
