@@ -160,3 +160,4 @@ great) - browser abc/Password123 -> GNOME + SLU wallpaper + H.264 + dashboard In
 {"ts":"2026-09-09T15:35:00Z","event":"perf_baseline","server_p50_ms":31,"server_min_ms":12,"nvenc_encode_ms":3,"e2e_ms":60,"fps_target":60,"fps_actual_idle":0.6,"fps_actual_active":8.4}
 {"ts":"2026-09-09T15:40:00Z","event":"latency_options_implemented","commit":"b945aa9","features":["SELKIES_STREAM_MODE env (webrtc/websockets)","--webrtc deploy flag","SELKIES_DAMAGE_THRESHOLD=5 for GPU","SELKIES_DAMAGE_DURATION=10 for GPU","Dockerfile sed patch for damage config"]}
 {"ts":"2026-09-09T15:45:00Z","event":"perf_artifacts","files":["scripts/perf-baseline.md","scripts/perf-regression.sh"],"regression_gate":"PASS<50ms WARN<80ms FAIL>=80ms"}
+{"ts":"2026-09-09T16:05:00Z","session_id":"startup-2026-09-09b","mode":"standard","mb_v":"2026-08","event":"session_start","state":"IDLE (M3 CLOSED/MERGED)","note":"clean tree; rhel9 ahead of origin by 1 (9561062 MB journal)"}
