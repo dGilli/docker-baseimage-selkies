@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+# M3 (SLU rhel9): configure X.Org on the GPU the pod was given, or exit
+# non-zero so the caller (svc-xorg) falls back to the Xvfb + llvmpipe path.
+#
+# Pattern port from selkies-project/docker-selkies-glx-desktop
+# `selkies-xorg-config` (see memory-bank F58 + 2026-08-31 ADR). Only the
+# NVIDIA path is implemented; SLU NRP is a 100% NVIDIA fleet (F58), AMD/
+# Intel modesetting is not on the roadmap and is deliberately NOT attempted
+# here. If the pod has no NVIDIA runtime or the driver userspace modules
+# cannot be staged, this script exits 1 and the Xvfb path runs unchanged.
+#
+# Key design (M3 driver-mismatch solution):
+#   - Node kernel driver version is authoritative (`/proc/driver/nvidia/version`
+#     from the toolkit's kernel-module bind-mount, or `nvidia-smi`).
+#   - The exact-matching `NVIDIA-Linux-<arch>-<ver>.run` archive is downloaded
+#     per-pod (consumer URL, tesla/datacenter fallback) and EXTRACTED, not
+#     installed. Only the two X server modules the container runtime does not
+#     inject are placed under the EL64/Debian multiarch Xorg module dir.
+#   - CUDA / NVENC / libcuda / libnvidia-ml continue to be served by the
+#     nvidia-container-toolkit mount (host-matched) — no LD_LIBRARY_PATH
+#     pollution, no /usr/local/nvidia layer, no risk of shadowing toolkit
+#     libs. That is the M3 refinement over the older full-userspace-install
+#     pattern documented in the ADR; the version-match insight is preserved.
+#
+# stdout contract on success: prints `nvidia`. stderr: human-readable log.
+set -e
+
+log() { echo "[selu-xorg-config] $*" >&2; }
+
+# ---- Guard: opt-in only ----------------------------------------------------
+# Default OFF preserves the M2-verified llvmpipe+NVENC path byte-for-byte.
+# XSERVER_BACKEND=nvidia-xorg enables M3 (opt-in via apply-nrp-e2e.sh --gpu-xorg
+# or a raw env on any pod). Anything else, including unset, is inactive.
+if [ "${XSERVER_BACKEND:-}" != "nvidia-xorg" ]; then
+  log "XSERVER_BACKEND is not 'nvidia-xorg'; M3 Xorg path inactive"
+  exit 1
+fi
+
+# ---- NVIDIA runtime detection ----------------------------------------------
+# The container toolkit injects `nvidia-smi` and the control devices only when
+# `NVIDIA_DRIVER_CAPABILITIES` is set (our image defaults it to `all`) AND the
+# pod requested an `nvidia.com/gpu` resource. Either signal alone is enough;
+# absence of both = no GPU = fall back to Xvfb.
+if ! command -v nvidia-smi >/dev/null 2>&1 && [ ! -e /dev/nvidiactl ]; then
+  log "no NVIDIA runtime visible (nvidia-smi absent, /dev/nvidiactl missing)"
+  exit 1
+fi
+
+# ---- X module directory (EL vs Debian multiarch auto-detect) ---------------
+# Keeps this file correct on our RHEL9 (EL) base and portable to fedora44
+# (also /usr/lib64). Debian multiarch /usr/lib/x86_64-linux-gnu/xorg/modules
+# is not used on this branch — but the loop covers /usr/lib too if some
+# derivative uses that.
+XORG_MODULE_DIR=""
+for d in /usr/lib64/xorg/modules /usr/lib/xorg/modules; do
+  [ -d "${d}/drivers" ] && XORG_MODULE_DIR="${d}" && break
+done
+if [ -z "${XORG_MODULE_DIR}" ]; then
+  log "no Xorg modules directory (tried /usr/lib64/xorg/modules, /usr/lib/xorg/modules)"
+  exit 1
+fi
+XORG_CONF="/etc/X11/xorg.conf"
+
+# ---- Driver version from the node's kernel module --------------------------
+NVIDIA_VERSION="${NVIDIA_DRIVER_VERSION:-}"
+if [ -z "${NVIDIA_VERSION}" ] && [ -f /proc/driver/nvidia/version ]; then
+  NVIDIA_VERSION="$(head -n1 /proc/driver/nvidia/version \
+    | awk '{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9.]+$/) {print $i; exit}}')"
+fi
+if [ -z "${NVIDIA_VERSION}" ] && command -v nvidia-smi >/dev/null 2>&1; then
+  NVIDIA_VERSION="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null \
+    | head -n1 | tr -d ' ')"
+fi
+if [ -z "${NVIDIA_VERSION}" ]; then
+  log "cannot determine NVIDIA driver version; set NVIDIA_DRIVER_VERSION to override"
+  exit 1
+fi
+
+# ---- BusID from nvidia-smi (per-pod allocated GPU) -------------------------
+# On multi-GPU nodes /sys/bus/pci is host-wide (F59) — a sysfs scan picks
+# wrong. `nvidia-smi` respects CUDA_VISIBLE_DEVICES / the toolkit's device
+# allocation and lists only the GPUs this pod actually holds.
+PCI_HEX="$(nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader 2>/dev/null \
+  | head -n1 | tr -d ' ' | tr '[:upper:]' '[:lower:]')"
+# nvidia-smi prints an 8-hex-digit domain (e.g. 00000000:db:00.0); the
+# kernel driver's /proc tree and X.Org use a 4-hex-digit domain (0000:db:00.0).
+# Strip the extra 4 zeros when the domain is all-zero.
+if [[ "${PCI_HEX}" =~ ^00000000: ]]; then
+  PCI_HEX="${PCI_HEX#0000}"
+fi
+# Validate against /proc/driver/nvidia/gpus/ (NOT /sys/bus/pci/devices/ —
+# nvidia-container-toolkit on k8s gives pods a restricted sysfs view where
+# the GPU's PCI entry is absent). The /proc tree IS visible because it's a
+# kernel procfs entry, not a device-sysfs entry.
+if [ -n "${PCI_HEX}" ] && [ ! -d "/proc/driver/nvidia/gpus/${PCI_HEX}" ]; then
+  # nvidia-smi returned a BusID but the kernel procfs doesn't show it under
+  # that exact form — try with explicit 0000: prefix (some driver versions)
+  if [ -d "/proc/driver/nvidia/gpus/0000:${PCI_HEX#*:}" ]; then
+    PCI_HEX="0000:${PCI_HEX#*:}"
+  else
+    log "nvidia-smi reported BusID ${PCI_HEX} but /proc/driver/nvidia/gpus/ has no matching entry — device not accessible"
+    PCI_HEX=""
+  fi
+fi
+# Fallback: scan /proc/driver/nvidia/gpus/ for the first entry that matches
+# our /dev/nvidia* device count (the toolkit exposes exactly N devices).
+if [ -z "${PCI_HEX}" ]; then
+  for g in /proc/driver/nvidia/gpus/*/; do
+    [ -d "${g}" ] || continue
+    PCI_HEX="$(basename "${g}" | tr '[:upper:]' '[:lower:]')"
+    break
+  done
+  if [ -n "${PCI_HEX}" ]; then
+    log "nvidia-smi empty; fell back to first /proc/driver/nvidia/gpus/ entry: ${PCI_HEX}"
+  fi
+fi
+if [ -z "${PCI_HEX}" ]; then
+  log "cannot resolve a PCI device visible to this pod (nvidia-smi + /proc/driver/nvidia/gpus both empty)"
+  exit 1
+fi
+# Format X.Org BusID: PCI:<bus>:<device>.<function> in DECIMAL (per X server
+# parser), with domain named only when non-zero.
+domain="${PCI_HEX%%:*}"; rest="${PCI_HEX#*:}"
+bus="${rest%%:*}";      rest="${rest#*:}"
+device="${rest%%.*}";   function="${rest#*.}"
+if [ "$((16#${domain}))" -ne 0 ]; then
+  BUSID="$(printf 'PCI:%d@%d:%d:%d' "$((16#${bus}))" "$((16#${domain}))" "$((16#${device}))" "$((16#${function}))")"
+else
+  BUSID="$(printf 'PCI:%d:%d:%d' "$((16#${bus}))" "$((16#${device}))" "$((16#${function}))")"
+fi
+
+# DeviceMinor: the nvidia X driver matches BusID against the kernel's GPU
+# enumeration. In a k8s pod, the nvidia-container-toolkit exposes only our
+# GPU's /dev/nvidia<N> node (N = host-wide minor, NOT remapped to 0).
+# Setting DeviceMinor in xorg.conf tells the driver to use that specific
+# device node directly, bypassing PCI matching that can fail in restricted
+# container environments (X 1.20 on RHEL9).
+DEVICE_MINOR=""
+for dev in /dev/nvidia[0-9]*; do
+  [ -e "$dev" ] || continue
+  # Skip control/modeset/uvm/caps devices (they use different minor patterns)
+  base="$(basename "$dev")"
+  if [[ "$base" =~ ^nvidia([0-9]+)$ ]]; then
+    DEVICE_MINOR="${BASH_REMATCH[1]}"
+    break
+  fi
+done
+# Fallback: read from /proc/driver/nvidia/gpus/<pci>/information
+if [ -z "${DEVICE_MINOR}" ] && [ -d "/proc/driver/nvidia/gpus/${PCI_HEX}" ]; then
+  DEVICE_MINOR="$(grep 'Device Minor' "/proc/driver/nvidia/gpus/${PCI_HEX}/information" 2>/dev/null \
+    | awk '{print $NF}')"
+fi
+if [ -n "${DEVICE_MINOR}" ]; then
+  log "device minor: ${DEVICE_MINOR} (/dev/nvidia${DEVICE_MINOR})"
+fi
+
+# ---- Stage the X server modules (idempotent per driver version) ------------
+DRV_SO="${XORG_MODULE_DIR}/drivers/nvidia_drv.so"
+GLX_SO_VERSIONED="${XORG_MODULE_DIR}/extensions/libglxserver_nvidia.so.${NVIDIA_VERSION}"
+GLX_SO_LINK="${XORG_MODULE_DIR}/extensions/libglxserver_nvidia.so"
+
+needs_stage=1
+if [ -f "${DRV_SO}" ] && [ -f "${GLX_SO_VERSIONED}" ]; then
+  # Already staged for this version — ensure the plain symlink exists (an
+  # earlier stage might have exited between install and link).
+  [ -e "${GLX_SO_LINK}" ] || ln -snf "libglxserver_nvidia.so.${NVIDIA_VERSION}" "${GLX_SO_LINK}"
+  needs_stage=0
+  log "modules for driver ${NVIDIA_VERSION} already staged"
+fi
+
+if [ "${needs_stage}" = "1" ]; then
+  arch="$(uname -m)"
+  archive="NVIDIA-Linux-${arch}-${NVIDIA_VERSION}.run"
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/selu-nvidia.XXXXXX")"
+  # shellcheck disable=SC2064  # expand tmpdir NOW, not at trap time
+  trap "rm -rf '${tmpdir}'" EXIT
+  log "staging NVIDIA X server modules for driver ${NVIDIA_VERSION} (one-time ~200MB download + extract for this driver version in this pod)"
+  # Consumer path first, tesla/datacenter fallback. NVIDIA archives every
+  # version forever, so 580/595/610 and any future major all resolve from
+  # the same URL scheme — no version pin needed in the image.
+  if ! curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --retry-max-time 900 \
+       -o "${tmpdir}/${archive}" \
+       "https://international.download.nvidia.com/XFree86/Linux-${arch}/${NVIDIA_VERSION}/${archive}"; then
+    if ! curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --retry-max-time 900 \
+         -o "${tmpdir}/${archive}" \
+         "https://international.download.nvidia.com/tesla/${NVIDIA_VERSION}/${archive}"; then
+      log "NVIDIA driver ${NVIDIA_VERSION} archive not downloadable (consumer + tesla URLs both failed)"
+      exit 1
+    fi
+  fi
+  # --extract-only: unpack the driver payload WITHOUT running the installer.
+  # This is the whole M3 trick. Zero interference with the toolkit-mounted
+  # libcuda / libnvidia-ml / libnvidia-encode — CUDA + NVENC keep working
+  # exactly as verified in M2.
+  if ! sh "${tmpdir}/${archive}" --extract-only --target "${tmpdir}/driver" >/dev/null; then
+    log "nvidia-installer --extract-only failed for ${archive}"
+    exit 1
+  fi
+  for src in "nvidia_drv.so" "libglxserver_nvidia.so.${NVIDIA_VERSION}"; do
+    if [ ! -f "${tmpdir}/driver/${src}" ]; then
+      log "expected file '${src}' not found in the extracted driver archive (driver ${NVIDIA_VERSION} unexpected layout)"
+      exit 1
+    fi
+  done
+  mkdir -p "${XORG_MODULE_DIR}/drivers" "${XORG_MODULE_DIR}/extensions"
+  install -m 644 "${tmpdir}/driver/nvidia_drv.so" "${DRV_SO}"
+  install -m 644 "${tmpdir}/driver/libglxserver_nvidia.so.${NVIDIA_VERSION}" "${GLX_SO_VERSIONED}"
+  ln -snf "libglxserver_nvidia.so.${NVIDIA_VERSION}" "${GLX_SO_LINK}"
+fi
+
+# ---- Modeline + xorg.conf --------------------------------------------------
+# Initial mode: prefer SELKIES_MANUAL_* if set (fixed-resolution diagnostic);
+# otherwise default 1920x1080@60. Runtime browser-driven resize (dynamic
+# resolution per 2026-08-31 ADR) continues to work via xrandr on the
+# Virtual-backed screen.
+INIT_W="${SELKIES_MANUAL_WIDTH:-1920}"
+INIT_H="${SELKIES_MANUAL_HEIGHT:-1080}"
+[ "${INIT_W}" = "0" ] && INIT_W=1920
+[ "${INIT_H}" = "0" ] && INIT_H=1080
+INIT_REFRESH="${DISPLAY_REFRESH:-60}"
+DEPTH="${DISPLAY_CDEPTH:-24}"
+if ! MODELINE="$(cvt -r "${INIT_W}" "${INIT_H}" "${INIT_REFRESH}" | sed -n '2p')"; then
+  log "cvt failed (is xorg-x11-server-Xorg installed?)"
+  exit 1
+fi
+MODE="$(printf '%s' "${MODELINE}" | awk '{print $2}' | tr -d '"')"
+
+# A video port the driver reports a monitor on keeps RandR outputs; `none`
+# leaves the server without RandR outputs (some headless setups prefer that).
+VIDEO_PORT="${VIDEO_PORT:-DFP}"
+if [ "$(printf '%s' "${VIDEO_PORT}" | tr '[:upper:]' '[:lower:]')" = "none" ]; then
+  PORT_OPT='Option         "UseDisplayDevice" "None"'
+else
+  PORT_OPT="Option         \"ConnectedMonitor\" \"${VIDEO_PORT}\""
+fi
+
+# DeviceMinor xorg.conf line (only when we detected a minor).
+# In a k8s container the nvidia X driver's PCI-BusID matching against the
+# kernel module's enumeration can fail (restricted /sys view). DeviceMinor
+# tells it to open /dev/nvidia<N> directly, bypassing PCI matching.
+DEVICE_MINOR_OPTION=""
+if [ -n "${DEVICE_MINOR}" ]; then
+  DEVICE_MINOR_OPTION="    Option         \"DeviceMinor\" \"${DEVICE_MINOR}\""$'\n'
+fi
+
+mkdir -p "$(dirname "${XORG_CONF}")"
+cat > "${XORG_CONF}" <<EOF
+# Written by selu-xorg-config for the NVIDIA GPU at ${PCI_HEX}; edits are
+# lost on next service start.
+Section "ServerLayout"
+    Identifier     "Layout0"
+    Screen      0  "Screen0" 0 0
+EndSection
+
+Section "ServerFlags"
+    Option         "DontVTSwitch" "True"
+    Option         "DontZap" "True"
+    Option         "AllowMouseOpenFail" "True"
+    Option         "AutoAddDevices" "False"
+    Option         "AutoAddGPU" "False"
+    Option         "BlankTime" "0"
+    Option         "StandbyTime" "0"
+    Option         "SuspendTime" "0"
+    Option         "OffTime" "0"
+EndSection
+
+Section "Monitor"
+    Identifier     "Monitor0"
+    ${MODELINE}
+    Option         "DPMS" "False"
+EndSection
+
+Section "Device"
+    Identifier     "Device0"
+    Driver         "nvidia"
+    BusID          "${BUSID}"
+${DEVICE_MINOR_OPTION}    ${PORT_OPT}
+    Option         "AllowEmptyInitialConfiguration" "True"
+    Option         "AllowExternalGpus" "True"
+    Option         "ProbeAllGpus" "True"
+    Option         "ModeValidation" "NoMaxPClkCheck,NoEdidMaxPClkCheck,NoMaxSizeCheck,NoHorizSyncCheck,NoVertRefreshCheck,NoVirtualSizeCheck,NoExtendedGpuCapabilitiesCheck,NoTotalSizeCheck,NoDualLinkDVICheck,NoDisplayPortBandwidthCheck,AllowNon3DVisionModes,AllowNonHDMI3DModes,AllowNonEdidModes,NoEdidHDMI2Check,AllowDpInterlaced"
+    Option         "IncludeImplicitMetaModes" "True"
+EndSection
+
+Section "Screen"
+    Identifier     "Screen0"
+    Device         "Device0"
+    Monitor        "Monitor0"
+    DefaultDepth    ${DEPTH}
+    SubSection     "Display"
+        Depth       ${DEPTH}
+        Modes      "${MODE}"
+        Virtual     ${INIT_W} ${INIT_H}
+    EndSubSection
+EndSection
+EOF
+
+log "NVIDIA GPU at ${PCI_HEX} (${BUSID}), video port ${VIDEO_PORT}, initial mode ${MODE}, driver version ${NVIDIA_VERSION}, modules in ${XORG_MODULE_DIR}"
+# stdout contract (see header): the driver name; caller uses it to pick the
+# X server binary and log the active backend.
+echo "nvidia"
