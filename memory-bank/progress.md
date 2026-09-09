@@ -27,7 +27,7 @@
 - [x] 2026-08-28 — **Phase 1.5 (dev scope) DONE**: pushed `docker.io/dgilli/selkies-rhel9:latest` (first push OCI manifest `sha256:46246466…` = c7; **re-pushed same day with R1 c8 = manifest `sha256:b70d42e3…`, current**); verified pull-by-digest + cold-boot smoke (web 200 both ports, ws 101, wallpaper on fresh volume, certs auto-gen); NRP k8s mapping `deploy/nrp-selkies-rhel9.yaml` (single-port fit: ws same-origin via nginx `/websocket`); gates closed **F28** (NRP templates have no securityContext — rootful OK), **F30** (Docker Hub dev; production tag ceremony deferred by user), **F55** (docker default seccomp allows ptrace on kernel ≥4.8 — proot-apps R1 needs no seccomp override). See: `tasks/2026-08/280828_phase1-5-nrp-dev-push.md`
 
 ## In Progress
-- **M3 close-out** (GH #4): user browser E2E verification (NVENC latency), add `SELKIES_AUTO_GPU=true` to deploy script, push branch + PR to `rhel9`, multi-node verification, merge + DOCS + task doc.
+- None. M3 merged 2026-09-09 (`650939f`). Next: user picks from roadmap (GH #5-#12).
 
 ## Next / Future Roadmap (user-tracked 2026-09-01)
 All items are **GitHub issues** on `dGilli/docker-baseimage-selkies`, kept on the project board — canonical mapping + board commands: `toc.md#GH-Tracking`.
