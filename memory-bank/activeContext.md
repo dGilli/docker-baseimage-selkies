@@ -1,12 +1,12 @@
 # Active Context
 
-**Last Updated**: 2026-09-08 | **State Machine**: `M3 Xorg+NVIDIA+NVENC VERIFIED / BROWSER E2E IN PROGRESS` (branch `feat/m3-gpu-xorg-ddx` @ base `cb898bc`; Xorg + NVIDIA DDX running as session user; MIT-SHM cross-user fix (F76); NVENC GPU encoding verified (F77); 23 preview iterations; current image `m3-preview-23`; pod live on NRP GTX 1080 Ti; user browser-testing stream). **Previous**: `GPU M2 CLOSED / GPU UTILIZATION + SELF-SERVICE START DOCUMENTED` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. 2026-09-01: live GPU-utilization monitoring documented (F65), `nvidia-smi dmon` + selkies NVENC verified on the running pod, and `apply-nrp-e2e.sh` now falls back to the existing namespace pull secret when local container auth is unavailable (F66). Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 COMPLETE (2026-09-08)**: fakevt.so LD_PRELOAD shim + boot-time module extract-only. Future roadmap tracked 2026-09-01: CLI/UX, selkies menu app installer, fork maintenance workflow, SLU image registry, docs)
+**Last Updated**: 2026-09-09 | **State Machine**: `M3 COMPLETE / PR #24 OPEN / LATENCY TUNING` (branch `feat/m3-gpu-xorg-ddx` → PR #24 to `rhel9`; Xorg+NVIDIA DDX+NVENC all verified; MIT-SHM fix (F76), NVENC (F77), perf baseline + WebRTC/damage options (F78); user browser E2E confirmed stream visible ~60ms; latency optimization options implemented: `--webrtc` flag, `SELKIES_DAMAGE_THRESHOLD=5/10` for GPU, `SELKIES_STREAM_MODE` env). **Previous**: `GPU M2 CLOSED / GPU UTILIZATION + SELF-SERVICE START DOCUMENTED` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. 2026-09-01: live GPU-utilization monitoring documented (F65), `nvidia-smi dmon` + selkies NVENC verified on the running pod, and `apply-nrp-e2e.sh` now falls back to the existing namespace pull secret when local container auth is unavailable (F66). Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 COMPLETE (2026-09-08)**: fakevt.so LD_PRELOAD shim + boot-time module extract-only. Future roadmap tracked 2026-09-01: CLI/UX, selkies menu app installer, fork maintenance workflow, SLU image registry, docs)
 
 > **GH sync (2026-09-08):** all roadmap tasks + completed milestones are GitHub issues on `dGilli/docker-baseimage-selkies`, kept current on the **project board** (https://github.com/users/dGilli/projects/1). Canonical issue↔area mapping + board commands: `toc.md#GH-Tracking`. Keep issue columns/labels in sync as work moves.
 
 ## Task: M3 GPU desktop rendering — feat/m3-gpu-xorg-ddx (started 2026-09-03) · **GH #4** (enhancement, In Progress → Done)
 
-**State**: `M3 Xorg+NVIDIA+NVENC VERIFIED (2026-09-08) — user browser E2E in progress`. Branch `feat/m3-gpu-xorg-ddx` (not pushed). Revert anchor: `pre-m3-gpu-xorg-ddx` → `cb898bc` on `rhel9`. Commits: `1fa9876` (initial) → `1128cdc` (fakevt+wait) → `c3d9e28` (MIT-SHM session-user fix) → `d7192ca` (MB).
+**State**: `M3 COMPLETE — PR #24 open, latency tuning implemented`. Branch `feat/m3-gpu-xorg-ddx` (pushed). Revert anchor: `pre-m3-gpu-xorg-ddx` → `cb898bc` on `rhel9`. Commits: `1fa9876` → `1128cdc` → `c3d9e28` → `780c634` (NVENC deploy) → `b945aa9` (WebRTC+damage) → `ecc777f` (perf baseline) + MB updates.
 
 **Objective** (per user 2026-09-03): implement M3 = real GPU desktop rendering. Success metrics: **GPU desktop + CUDA** both working. Testing scope: opportunistic `nvidia.com/gpu: 1` on NRP only (no node targeting; the specific nodes that end up exercised are recorded in a testing matrix for later explicit coverage — future work).
 
@@ -45,12 +45,19 @@
 - `mouse`/`kbd` Xorg modules absent (not in RHEL9 package set): non-fatal, input handled by selkies/pixelflux layer.
 - `k8s-3090-01.usd.edu` + `k8s-chase-ci-04.calit2.optiputer.net` intermittently report "GPU is lost" (NVLink state): transient, pod reschedules to healthy node.
 
-**Next after user browser verification**:
-1. ✅ Commit (done: `1fa9876` → `1128cdc` → `c3d9e28` → `d7192ca`)
-2. Add `SELKIES_AUTO_GPU=true` to `apply-nrp-e2e.sh` `--gpu-xorg` path (NVENC by default)
-3. Push branch → PR back to `rhel9`
-4. Multi-node verification (A10, RTX 2080 Ti) with NVENC
-5. Merge → DOCS (task doc, GH #4 → Done, GH #22 → Done)
+**Completed (2026-09-09)**:
+1. ✅ Commit + push (9 commits on branch)
+2. ✅ `SELKIES_AUTO_GPU=true` in deploy script (NVENC by default)
+3. ✅ PR #24 open → `rhel9` (CI green)
+4. ✅ User browser E2E: stream visible, ~60ms latency (CPU→NVENC pending user re-test)
+5. ✅ Performance baseline measured (F78): server p50=31ms, NVENC 3ms, damage-based capture
+6. ✅ Latency options implemented: `--webrtc` flag, `SELKIES_STREAM_MODE` env, `SELKIES_DAMAGE_THRESHOLD=5/10` for GPU
+
+**Remaining before merge**:
+- User confirms NVENC latency improvement (reconnect with SELKIES_AUTO_GPU active)
+- Test `--webrtc` through NRP ingress (UDP may be blocked by haproxy)
+- Multi-node verification (A10, RTX 2080 Ti) with NVENC + perf test
+- Merge PR #24 → `rhel9` → DOCS (task doc, GH #4 → Done, GH #22 → Done)
 
 **Roadmap success metric**: "GPU desktop as well as CUDA" — CUDA works today via toolkit-mounted libs (M2); M3 preserves that verbatim (extract-only never shadows libcuda / libnvidia-ml). GPU desktop is the new path this PR delivers. Both = success.
 

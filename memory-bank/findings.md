@@ -631,7 +631,39 @@ P-frames ~80% smaller than CPU x264 (595 B vs 3 KB). Encode latency drops from ~
 
 **Deployment fix** (pending commit): Add `SELKIES_AUTO_GPU=true` to `apply-nrp-e2e.sh` `--gpu-xorg` (and `--gpu`) env so all GPU pods get NVENC by default. No hardcoded renderD number needed (auto-detect).
 
-**Status**: ✅ verified working. Deployment env change pending.
+**Status**: ✅ verified working. Deployment env committed (`780c634`).
+
+### F78 — M3 streaming performance baseline + latency optimization levers
+Measured 2026-09-09 on NRP (Tesla V100-PCIE-16GB, driver 580.159.04, Xorg+NVIDIA DDX+NVENC):
+
+**Pipeline latency breakdown** (server-side, 60fps target, full-screen activity):
+```
+User input → [frame schedule 0-16ms] → [MIT-SHM capture ~0ms] → [NVENC ~3ms] → frame out
+             Total server-side p50: 31ms (min 12ms, max 433ms with idle gaps)
+E2E (user-observed): ~60ms = 31ms server + 15ms network (WebSocket) + 14ms client
+```
+
+**Damage-based capture** (key architecture insight):
+- Static desktop: 0-6 frames/10s (GPU enc 0%, bandwidth ~0) — correct, efficient
+- Active (moving window): 8-14 FPS actual (60fps target, limited by screen change rate)
+- Full-screen animation: approaches target FPS
+- Frame sizes: 0.1-21 KB (I-frame 21KB, P-frames 0.1-7KB depending on change magnitude)
+- This is NOT a bug — pixelflux only encodes when pixels change (bandwidth-efficient)
+
+**Optimization levers implemented** (commit `b945aa9`):
+| Lever | Env/Flag | Default | GPU Deploy | Effect |
+|-------|----------|---------|------------|--------|
+| Transport | `SELKIES_STREAM_MODE` / `--webrtc` | `websockets` | `websockets` | WebRTC = UDP, saves ~5-10ms (needs STUN/TURN) |
+| Damage threshold | `SELKIES_DAMAGE_THRESHOLD` | 10 | 5 | Encode sooner after change (~5ms faster response) |
+| Damage duration | `SELKIES_DAMAGE_DURATION` | 20 | 10 | Shorter coalescing window |
+| FPS | Browser sidebar setting | 30 | 30 | 60fps halves frame-wait (33→16ms) |
+| GPU encoder | `SELKIES_AUTO_GPU` | (unset=CPU) | `true` | NVENC 3ms vs CPU x264 12ms |
+
+**Regression test**: `scripts/perf-regression.sh` (in-pod, generates full-screen activity, measures frame interval p50). Gate: PASS<50ms, WARN<80ms, FAIL≥80ms.
+
+**Baseline doc**: `scripts/perf-baseline.md` (full data, optimization table, E2E breakdown).
+
+**Status**: ✅ measured + options implemented. User to verify WebRTC through NRP ingress (UDP may be blocked by haproxy).
 
 ---
 

@@ -153,3 +153,10 @@ great) - browser abc/Password123 -> GNOME + SLU wallpaper + H.264 + dashboard In
 {"ts":"2026-09-08T19:50:00Z","event":"user_browser_e2e","status":"stream visible","latency_ms":60,"encoder":"x264enc (CPU)","note":"user testing; NVENC env set for reconnect"}
 {"ts":"2026-09-08T19:55:00Z","event":"gh_sync","issues":["#4 comment (3-hurdle table + diagnosis)"," #22 comment (resolved)"," #23 created (EGL/DRI3 alternative)"],"mb_updated":["findings.md F76+F77","activeContext.md","progress.md","toc.md","ops-log.jsonl"]}
 {"ts":"2026-09-08T19:58:00Z","event":"commits","branch":"feat/m3-gpu-xorg-ddx","shas":["1fa9876","1128cdc","c3d9e28","3772ed7","d7192ca"]}
+{"ts":"2026-09-09T15:58:18Z","mode":"fast","branch":"feat/m3-gpu-xorg-ddx","head":"b945aa9","note":"startup; tree clean; M3 close-out commits in flight (NVENC default, upstream/f44 merge, perf baseline, WebRTC+damage-threshold)"}
+{"ts":"2026-09-09T15:20:00Z","event":"ci_fix","detail":"merged upstream/fedora44 (e9db972 package_versions bump) to resolve delta gate FAIL"}
+{"ts":"2026-09-09T15:25:00Z","event":"pr_open","pr":24,"base":"rhel9","head":"feat/m3-gpu-xorg-ddx","ci":"green"}
+{"ts":"2026-09-09T15:30:00Z","event":"deploy","image":"m3-preview-23","node":"V100 (free schedule)","gpu":"Tesla V100-PCIE-16GB 580.159.04"}
+{"ts":"2026-09-09T15:35:00Z","event":"perf_baseline","server_p50_ms":31,"server_min_ms":12,"nvenc_encode_ms":3,"e2e_ms":60,"fps_target":60,"fps_actual_idle":0.6,"fps_actual_active":8.4}
+{"ts":"2026-09-09T15:40:00Z","event":"latency_options_implemented","commit":"b945aa9","features":["SELKIES_STREAM_MODE env (webrtc/websockets)","--webrtc deploy flag","SELKIES_DAMAGE_THRESHOLD=5 for GPU","SELKIES_DAMAGE_DURATION=10 for GPU","Dockerfile sed patch for damage config"]}
+{"ts":"2026-09-09T15:45:00Z","event":"perf_artifacts","files":["scripts/perf-baseline.md","scripts/perf-regression.sh"],"regression_gate":"PASS<50ms WARN<80ms FAIL>=80ms"}
