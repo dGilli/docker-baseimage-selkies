@@ -140,3 +140,16 @@ great) - browser abc/Password123 -> GNOME + SLU wallpaper + H.264 + dashboard In
 {"timestamp":"2026-09-08T17:28:00Z","session_id":"slu-selkies-2026-09-08b","event":"m3_reverified","note":"m3-preview-20 confirmed working: Xorg running, glxinfo NVIDIA RTX 2080 Ti; pod slu-rhel9-m3-777b469f9b-67jqc"}
 {"timestamp":"2026-09-08T17:30:00Z","session_id":"slu-selkies-2026-09-08b","event":"state_transition","from":"BUILD","to":"APPROVAL","task":"m3-gpu-xorg-ddx","note":"M3 verified, awaiting user browser verification + commit approval"}
 {"timestamp":"2026-09-08T17:35:00Z","session_id":"slu-selkies-2026-09-08b","event":"mb_update","detail":"activeContext M3→VERIFIED; progress.md GH#4 done; toc.md #4→Done; findings.md F75 (fakevt shim); ops-log M3 events; reconciled with 2026-09-08a GH tracking session"}
+{"ts":"2026-09-08T19:00:00Z","event":"session_start","mode":"standard","task":"M3 Xorg+DDX pixelflux troubleshoot","branch":"feat/m3-gpu-xorg-ddx"}
+{"ts":"2026-09-08T19:05:00Z","event":"deploy","image":"m3-preview-22","node":"fiona8-1.calit2.uci.edu","gpu":"GTX 1080 Ti 580.159.04"}
+{"ts":"2026-09-08T19:12:00Z","event":"xorg_verified","renderer":"NVIDIA GeForce GTX 1080/PCIe/SSE2","gl":"4.6.0 NVIDIA 580.159.04","display":"1920x1080"}
+{"ts":"2026-09-08T19:15:00Z","event":"diagnosis","finding":"pixelflux display=1024x768 is hardcoded pre-client default (selkies.py:137-138), NOT a connection failure"}
+{"ts":"2026-09-08T19:18:00Z","event":"diagnosis","finding":"XCB connects fine to Xorg+NVIDIA (C test: 1920x1080 depth 24). x264 is built into pixelflux .so (not GStreamer). IS_WAYLAND=false. DRI3 present."}
+{"ts":"2026-09-08T19:22:00Z","event":"root_cause","finding":"MIT-SHM SHMAttach BadAccess (error 10): Xorg-as-root + pixelflux-as-abc = cross-uid shmat denied by X 1.20. Direct start_capture() as root=OK, as abc (Xorg-root)=FAIL, as abc (Xorg-abc)=OK"}
+{"ts":"2026-09-08T19:30:00Z","event":"fix_applied","commit":"c3d9e28","change":"svc-xorg/run: Xorg launched via su abc (session user). usermod for DRI video groups. xdpyinfo check as abc."}
+{"ts":"2026-09-08T19:35:00Z","event":"deploy","image":"m3-preview-23","result":"Xorg as abc + NVIDIA DDX + H.264 1920x1080 capture VERIFIED (frames: 37KB/43KB/3KB)"}
+{"ts":"2026-09-08T19:45:00Z","event":"nvenc_verified","api_version":"13.0","gpu":"GTX 1080","bus":"0000:08:00.0","stream":"H.264 1920x924 30fps CRF23","pframe_bytes":595}
+{"ts":"2026-09-08T19:47:00Z","event":"deploy_env","change":"SELKIES_AUTO_GPU=true + DRI_NODE=/dev/dri/renderD130 written to svc-selkies/environment (runtime, for user browser re-test)"}
+{"ts":"2026-09-08T19:50:00Z","event":"user_browser_e2e","status":"stream visible","latency_ms":60,"encoder":"x264enc (CPU)","note":"user testing; NVENC env set for reconnect"}
+{"ts":"2026-09-08T19:55:00Z","event":"gh_sync","issues":["#4 comment (3-hurdle table + diagnosis)"," #22 comment (resolved)"," #23 created (EGL/DRI3 alternative)"],"mb_updated":["findings.md F76+F77","activeContext.md","progress.md","toc.md","ops-log.jsonl"]}
+{"ts":"2026-09-08T19:58:00Z","event":"commits","branch":"feat/m3-gpu-xorg-ddx","shas":["1fa9876","1128cdc","c3d9e28","3772ed7","d7192ca"]}

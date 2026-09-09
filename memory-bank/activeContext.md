@@ -1,12 +1,12 @@
 # Active Context
 
-**Last Updated**: 2026-09-08 | **State Machine**: `M3 VERIFIED SUCCESS / AWAITING COMMIT + DOCS` (branch `feat/m3-gpu-xorg-ddx` @ base `cb898bc`; M3 GPU desktop rendering confirmed working on NRP: Xorg + NVIDIA DDX + glxinfo shows RTX 2080 Ti OpenGL 4.6.0; fakevt.so LD_PRELOAD shim resolves RHEL9 X 1.20 VT-in-container fatal error (F75); 20 preview iterations m3-preview through m3-preview-20; final image `m3-preview-20` `bf408bf`). **Previous**: `GPU M2 CLOSED / GPU UTILIZATION + SELF-SERVICE START DOCUMENTED` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. 2026-09-01: live GPU-utilization monitoring documented (F65), `nvidia-smi dmon` + selkies NVENC verified on the running pod, and `apply-nrp-e2e.sh` now falls back to the existing namespace pull secret when local container auth is unavailable (F66). Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 COMPLETE (2026-09-08)**: fakevt.so LD_PRELOAD shim + boot-time module extract-only. Future roadmap tracked 2026-09-01: CLI/UX, selkies menu app installer, fork maintenance workflow, SLU image registry, docs)
+**Last Updated**: 2026-09-08 | **State Machine**: `M3 Xorg+NVIDIA+NVENC VERIFIED / BROWSER E2E IN PROGRESS` (branch `feat/m3-gpu-xorg-ddx` @ base `cb898bc`; Xorg + NVIDIA DDX running as session user; MIT-SHM cross-user fix (F76); NVENC GPU encoding verified (F77); 23 preview iterations; current image `m3-preview-23`; pod live on NRP GTX 1080 Ti; user browser-testing stream). **Previous**: `GPU M2 CLOSED / GPU UTILIZATION + SELF-SERVICE START DOCUMENTED` (**GPU M0 passed, M1 codified with `--gpu` + `DISABLE_ZINK=true` + Recreate strategy, M2 clean-path rerun PASSED; minimal GPU GNOME fix = deployment env `DISABLE_ZINK=true` only, no `MOZ_*`, no explicit Mesa/EGL/Vulkan pins, no `NVIDIA_DRIVER_CAPABILITIES` override, no fixed `SELKIES_MANUAL_*`. 2026-09-01: live GPU-utilization monitoring documented (F65), `nvidia-smi dmon` + selkies NVENC verified on the running pod, and `apply-nrp-e2e.sh` now falls back to the existing namespace pull secret when local container auth is unavailable (F66). Phase 1.5 production was previously complete end-to-end**: `v4-llvmpipe` pin (private) + drop-in template `deploy/nrp/selkies-rhel9.yaml.template` + one-shot `deploy/nrp/apply-nrp-e2e.sh` → live NRP cluster (ns `slu-researchtechnologies-dgilli`), **user manual verification PASSED** (GNOME + SLU wallpaper + H.264 + FileZilla R1); user tore down the pod, secrets remain documented. R1 steps 1–2: proot-apps shipped c8 `cc2c2b7`. Phase 1.5 dev: `docker.io/dgilli/selkies-rhel9:latest` + dev manifest; F28/F30/F55/F57 closed. Task 2: `11a8afd` + `06bc207`. Phase 1: `bd46cdb` → `23964ff` → `24e1575`. **GPU plan (2026-08-31, user-approved)**: M0–M2 next — free scheduling `nvidia.com/gpu: 1` (NO node targeting, NO A100 — A100 is platform-gated `nvidia.com/a100`, unreachable via generic resource), zero image changes (pixelflux 2.0.0 auto NVENC on L4 landings; A100 has no NVENC anyway), M1 = `apply-nrp-e2e.sh --gpu` + optional pixelflux==2.0.0 pin, M2 = live E2E. **M3 COMPLETE (2026-09-08)**: fakevt.so LD_PRELOAD shim + boot-time module extract-only. Future roadmap tracked 2026-09-01: CLI/UX, selkies menu app installer, fork maintenance workflow, SLU image registry, docs)
 
 > **GH sync (2026-09-08):** all roadmap tasks + completed milestones are GitHub issues on `dGilli/docker-baseimage-selkies`, kept current on the **project board** (https://github.com/users/dGilli/projects/1). Canonical issue↔area mapping + board commands: `toc.md#GH-Tracking`. Keep issue columns/labels in sync as work moves.
 
 ## Task: M3 GPU desktop rendering — feat/m3-gpu-xorg-ddx (started 2026-09-03) · **GH #4** (enhancement, In Progress → Done)
 
-**State**: `M3 VERIFIED SUCCESS (2026-09-08) — awaiting commit + DOCS`. Branch `feat/m3-gpu-xorg-ddx` (not pushed). Revert anchor: `pre-m3-gpu-xorg-ddx` → `cb898bc` on `rhel9`.
+**State**: `M3 Xorg+NVIDIA+NVENC VERIFIED (2026-09-08) — user browser E2E in progress`. Branch `feat/m3-gpu-xorg-ddx` (not pushed). Revert anchor: `pre-m3-gpu-xorg-ddx` → `cb898bc` on `rhel9`. Commits: `1fa9876` (initial) → `1128cdc` (fakevt+wait) → `c3d9e28` (MIT-SHM session-user fix) → `d7192ca` (MB).
 
 **Objective** (per user 2026-09-03): implement M3 = real GPU desktop rendering. Success metrics: **GPU desktop + CUDA** both working. Testing scope: opportunistic `nvidia.com/gpu: 1` on NRP only (no node targeting; the specific nodes that end up exercised are recorded in a testing matrix for later explicit coverage — future work).
 
@@ -30,19 +30,27 @@
 - Delta gate: PASS (7 modified / 108 additive / 0 drift / all +x modes preserved) ✓
 - Driver archive reachability (from this host's curl): `NVIDIA-Linux-x86_64-{580.159.04, 595.71.05}.run` both 200 OK on consumer URL, 595 also 200 on tesla fallback ✓
 
-**Cluster QA phase 2 (COMPLETED 2026-09-08 — M3 VERIFIED)**:
-- 20 preview iterations (`m3-preview` through `m3-preview-20`) resolved RHEL9 X 1.20 VT-in-container fatal error via `fakevt.so` LD_PRELOAD shim (F75)
-- Final image `m3-preview-20` (`bf408bf`) deployed to NRP: Xorg + NVIDIA DDX running, `glxinfo` shows `NVIDIA GeForce RTX 2080 Ti/PCIe/SSE2` OpenGL 4.6.0, `nvidia-smi` shows Disp.A=On, display 1920x1080
-- **Testing matrix** (free scheduling, opportunistic): `epic001.clemson.edu` RTX 2080 Ti 595.71.05 PASS; `k8s-chase-ci-10.calit2.optiputer.net` RTX 2080 Ti 595.71.05 PASS; `hcc-nrp-shor-c5909.unl.edu` A10 595.91.07 (VT pass, NVIDIA init different GPU); `ry-gpu-03.sdsc.optiputer.net` A10 595.71.05 (VT pass)
-- First-boot latency observed: 2–4 min (module download + extract + Xorg start); 600 s timeout sufficient
-- NRP egress to `international.download.nvidia.com`: WORKS (multiple nodes)
+**Cluster QA phase 2 (COMPLETED 2026-09-08 — M3 Xorg+NVIDIA+STREAM VERIFIED)**:
+- 23 preview iterations (`m3-preview` through `m3-preview-23`) resolved:
+  - RHEL9 X 1.20 VT-in-container fatal → `fakevt.so` LD_PRELOAD shim (F75)
+  - MIT-SHM cross-user BadAccess → Xorg runs as session user abc (F76)
+  - NVENC GPU encoding → `SELKIES_AUTO_GPU=true` / `DRI_NODE` env (F77)
+- **Testing matrix** (free scheduling, opportunistic): `epic001.clemson.edu` RTX 2080 Ti 595.71.05 PASS; `k8s-chase-ci-10.calit2.optiputer.net` RTX 2080 Ti 595.71.05 PASS; `hcc-nrp-shor-c5909.unl.edu` A10 595.91.07 (VT pass); `ry-gpu-03.sdsc.optiputer.net` A10 595.71.05 (VT pass); `fiona8-1.calit2.uci.edu` GTX 1080 Ti 580.159.04 (full stream + NVENC verified)
+- First-boot latency: 2–4 min (module download + extract + Xorg start); 600 s timeout sufficient
+- **User browser E2E (2026-09-08)**: stream visible, desktop renders, latency ~60ms (CPU x264); NVENC enabled via s6 env (pending user re-verify latency drop)
+- **GH issues**: #22 (Xorg+DDX hurdles), #23 (Xvfb+DRI3/EGL alternative path), #4 (M3 tracking — comment with full 3-hurdle table)
 
 **Risks + open unknowns**:
 - Dynamic-resolution xrandr: `Virtual 1920 1080` in xorg.conf caps the mode set. MVP accepted. If user wants larger, bump `Virtual` to 15360x8640 or map `DISPLAY_SIZEW/H`.
 - `mouse`/`kbd` Xorg modules absent (not in RHEL9 package set): non-fatal, input handled by selkies/pixelflux layer.
 - `k8s-3090-01.usd.edu` + `k8s-chase-ci-04.calit2.optiputer.net` intermittently report "GPU is lost" (NVLink state): transient, pod reschedules to healthy node.
 
-**Next after verification**: commit all uncommitted changes on `feat/m3-gpu-xorg-ddx` → PR back to `rhel9` → user browser verification (desktop + CUDA) → merge → DOCS (task doc, GH #4 → Done).
+**Next after user browser verification**:
+1. ✅ Commit (done: `1fa9876` → `1128cdc` → `c3d9e28` → `d7192ca`)
+2. Add `SELKIES_AUTO_GPU=true` to `apply-nrp-e2e.sh` `--gpu-xorg` path (NVENC by default)
+3. Push branch → PR back to `rhel9`
+4. Multi-node verification (A10, RTX 2080 Ti) with NVENC
+5. Merge → DOCS (task doc, GH #4 → Done, GH #22 → Done)
 
 **Roadmap success metric**: "GPU desktop as well as CUDA" — CUDA works today via toolkit-mounted libs (M2); M3 preserves that verbatim (extract-only never shadows libcuda / libnvidia-ml). GPU desktop is the new path this PR delivers. Both = success.
 

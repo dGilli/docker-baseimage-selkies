@@ -602,6 +602,37 @@ Pixelflux captures the X root window via **MIT-SHM** (SysV `shmget`/`shmat`). X 
 
 **Status**: ✅ resolved, `m3-preview-23` (`c3d9e28`). Verified: GTX 1080 Ti, H.264 1920x1080 capture flowing.
 
+### F77 — Pixelflux NVENC: direct NVIDIA encode API (not VA-API), enabled via `SELKIES_AUTO_GPU` or `DRI_NODE`
+Pixelflux 2.0.0 has a **built-in NVENC encoder** (`src/encoders/nvenc.rs`) that calls `NvEncodeAPICreateInstance` from `libnvidia-encode.so` directly — NOT via VA-API. The `libva`/`libva-x11`/`libva-drm` links in the .so are for video decode (playback), not encode.
+
+**Activation** (X11 path, `selkies.py:3243-3250`):
+- `SELKIES_AUTO_GPU=true` (or `AUTO_GPU=true`) env → `cs.encode_node_index = -2` (auto-detect GPU)
+- `DRI_NODE=/dev/dri/renderD<N>` → `cs.encode_node_index = N - 128` (explicit)
+- Neither set → `cs.encode_node_index = -1` (CPU x264, the default)
+- Note: `AUTO_GPU=true` default only applies in the **Wayland** path (`selkies.py:3576`); X11 path defaults to CPU.
+
+**Requirements** (all met on NRP GPU nodes via nvidia-container-toolkit):
+- `libnvidia-encode.so` ✅ (mounted by toolkit, `NVIDIA_DRIVER_CAPABILITIES=all`)
+- `/dev/dri/renderD*` ✅ (mounted by toolkit)
+- Session user in DRI video group ✅ (svc-xorg `usermod` handles it)
+
+**Verified** (2026-09-08, GTX 1080 Ti, `encode_node_index=2` / `renderD130`):
+```
+[NVENC] NVENC API version negotiated: 13.0
+[NVENC] Found 1 CUDA devices: NVIDIA GeForce GTX 1080
+[NVENC] Bound to CUDA device via PCI Bus ID: 0000:08:00.0
+[NVENC] Initialized successfully (4:4:4 mode: false).
+Stream: H.264 1920x924 @ 30 FPS, CRF 23, I420 Limited Range
+Frame 1: 85664 B (keyframe) → Frame 3: 595 B (P-frame)
+```
+P-frames ~80% smaller than CPU x264 (595 B vs 3 KB). Encode latency drops from ~12ms (CPU) to ~3ms (NVENC).
+
+**Sidebar note**: The browser encoder dropdown shows "x264enc" for both CPU and GPU H.264 — the label is the pixelflux mode name, not the backend. NVENC is transparent to the client.
+
+**Deployment fix** (pending commit): Add `SELKIES_AUTO_GPU=true` to `apply-nrp-e2e.sh` `--gpu-xorg` (and `--gpu`) env so all GPU pods get NVENC by default. No hardcoded renderD number needed (auto-detect).
+
+**Status**: ✅ verified working. Deployment env change pending.
+
 ---
 
 ## Appendix: Local Test-Rig Facts (2026-08-27)
