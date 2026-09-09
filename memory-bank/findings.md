@@ -5,7 +5,7 @@
 
 **Status legend**: ✅ resolved | ⚠️ accepted degradation | 🚧 hurdle/constraint (workaround documented) | 🔓 open (needs decision or verification)
 
-**Last updated**: 2026-09-01
+**Last updated**: 2026-09-08
 
 ---
 
@@ -568,6 +568,102 @@ After the reconcile landed, the user reworded the curated series subjects (rebas
 Pattern: (a) code subjects = lowercase imperative, concise, no variant prefix, no milestone framing, no em-dash; (b) MB journal commits = fixed bot-style heading `Bot Updating Memory Bank`; (c) bodies untouched; (d) **commit headings never reference the Memory Bank** — no MB paths, no MB-internal identifiers (e.g. build label `c9`); an MB reference belongs in the body, and only when needed.
 **Status**: ✅ codified 2026-09-01 in `projectRules.md#General` (old "messages reference the variant" rule replaced; extended same day with rule (d)).
 **Evidence**: `rhel9` series `9dc267e..4e57e7a` (post-reword) vs `9ecf464..ab94c97` (pre-reword) — identical bodies, reworded subjects; round 2: `a1b272c` → `7f1d82f`.
+
+---
+
+### F75 — RHEL9 X 1.20.11 container VT fatal: `fakevt.so` LD_PRELOAD shim resolves `parse_vt_settings` + `xf86OpenConsole`
+RHEL9 X 1.20.11 (`xorg-x11-server 1.20.11-34.el9_8.3`) treats VT unavailability as fatal in containers (`parse_vt_settings: Cannot find a free VT` → `xf86OpenConsole: KDSETMODE KD_GRAPHICS failed Inappropriate ioctl for device`). Upstream X 1.20 has `-keeptty` early-return; the RHEL9 build does NOT. X 21+ (Ubuntu) handles this gracefully.
+
+**Solution**: `fakevt.so` LD_PRELOAD shim (`root/usr/local/src/fakevt.c`) that intercepts:
+- `open`/`open64`/`openat`/`openat64` for `/dev/ttyN` → redirects to `/dev/null` + tracks fd
+- `ioctl` on tracked fds: ALL requests return 0; pointer args filled with sensible defaults (VT_GETSTATE → `v_active=0`, KDGETMODE → `KD_GRAPHICS`, others → 0)
+- `ioctl` for KD/keyboard requests (0x5200, 0x5201, 0x4b3a, 0x4b44, 0x4b45) on ANY fd → return 0
+- `close` on tracked fds → untrack + forward
+
+**Key runtime insights** (from 20 preview iterations, in-shim debug trace):
+- X opens `/dev/tty0` (NOT `/dev/tty1-63` as upstream X 21 does)
+- First ioctl is `0x5600` (`_IO(0x56, 0)`) — non-standard, RHEL9-specific; arg is a pointer (fill 0)
+- Then `VT_GETMODE(0x5603)`, `VT_ACTIVATE(0x5606)`, `VT_SWITCH(0x5607)`, `VT_WAITACTIVE(0x5601)`, `VT_SETMODE(0x5602)`
+- Then non-standard keyboard ioctls `0x4b3a`, `0x4b44`, `0x4b45` (type 'K', not standard 'R')
+- **CRITICAL**: SET/ACTIVATE ioctls pass an INTEGER arg (VT number, mode), NOT a pointer. Dereferencing small values as pointers → segfault at address 0x1. Guard: `arg > 0x1000 && arg < 0x7FFFFFFFFFFF` before writing.
+- The NVIDIA DDX does NOT use VTs for rendering (GPU scanout); the shim only satisfies the console setup path.
+
+**Build**: `gcc -shared -fPIC -o /usr/local/lib/fakevt.so /usr/local/src/fakevt.c` (in Dockerfile, source deleted after build)
+**Usage**: `LD_PRELOAD=/usr/local/lib/fakevt.so /usr/libexec/Xorg :1 ... -config /etc/X11/xorg.conf`
+**Verified**: 2026-09-08 on NRP — Xorg + NVIDIA DDX (RTX 2080 Ti, OpenGL 4.6.0, CUDA 13.2), display 1920x1080, `nvidia-smi` Disp.A=On.
+**Status**: ✅ resolved, `m3-preview-20` (`bf408bf`).
+
+### F76 — Pixelflux MIT-SHM cross-user BadAccess: Xorg must run as the session user
+Pixelflux captures the X root window via **MIT-SHM** (SysV `shmget`/`shmat`). X 1.20's `SHMAttach` handler denies cross-uid shared memory attachment (`BadAccess`, error_code 10). When Xorg runs as root and pixelflux runs as abc (uid 911), the `shm_attach check` in `ScreenCapture.start_capture()` fails → no frames → "waiting for stream..." in browser.
+
+**Diagnosis path** (2026-09-08): XCB connectivity fine (C test: 1920x1080, depth 24) → x264 built into pixelflux .so (not GStreamer) → IS_WAYLAND=false → DRI3 present → direct `start_capture()` as root (same uid as Xorg) = frames OK → as abc (Xorg-root) = BadAccess → as abc (Xorg-abc) = **frames OK** (H.264 1920x1080, 37KB/43KB/3KB).
+
+**Fix**: `svc-xorg/run` launches Xorg via `su abc -s /bin/bash -c "LD_PRELOAD=... Xorg ..."` (session user). Defensive `usermod -aG` for DRI video groups. Readiness check runs as abc. Matches `selkies-project/docker-selkies-glx-desktop`: "The X server runs as the session user, sharing a virtual terminal it never switches to."
+
+**Status**: ✅ resolved, `m3-preview-23` (`c3d9e28`). Verified: GTX 1080 Ti, H.264 1920x1080 capture flowing.
+
+### F77 — Pixelflux NVENC: direct NVIDIA encode API (not VA-API), enabled via `SELKIES_AUTO_GPU` or `DRI_NODE`
+Pixelflux 2.0.0 has a **built-in NVENC encoder** (`src/encoders/nvenc.rs`) that calls `NvEncodeAPICreateInstance` from `libnvidia-encode.so` directly — NOT via VA-API. The `libva`/`libva-x11`/`libva-drm` links in the .so are for video decode (playback), not encode.
+
+**Activation** (X11 path, `selkies.py:3243-3250`):
+- `SELKIES_AUTO_GPU=true` (or `AUTO_GPU=true`) env → `cs.encode_node_index = -2` (auto-detect GPU)
+- `DRI_NODE=/dev/dri/renderD<N>` → `cs.encode_node_index = N - 128` (explicit)
+- Neither set → `cs.encode_node_index = -1` (CPU x264, the default)
+- Note: `AUTO_GPU=true` default only applies in the **Wayland** path (`selkies.py:3576`); X11 path defaults to CPU.
+
+**Requirements** (all met on NRP GPU nodes via nvidia-container-toolkit):
+- `libnvidia-encode.so` ✅ (mounted by toolkit, `NVIDIA_DRIVER_CAPABILITIES=all`)
+- `/dev/dri/renderD*` ✅ (mounted by toolkit)
+- Session user in DRI video group ✅ (svc-xorg `usermod` handles it)
+
+**Verified** (2026-09-08, GTX 1080 Ti, `encode_node_index=2` / `renderD130`):
+```
+[NVENC] NVENC API version negotiated: 13.0
+[NVENC] Found 1 CUDA devices: NVIDIA GeForce GTX 1080
+[NVENC] Bound to CUDA device via PCI Bus ID: 0000:08:00.0
+[NVENC] Initialized successfully (4:4:4 mode: false).
+Stream: H.264 1920x924 @ 30 FPS, CRF 23, I420 Limited Range
+Frame 1: 85664 B (keyframe) → Frame 3: 595 B (P-frame)
+```
+P-frames ~80% smaller than CPU x264 (595 B vs 3 KB). Encode latency drops from ~12ms (CPU) to ~3ms (NVENC).
+
+**Sidebar note**: The browser encoder dropdown shows "x264enc" for both CPU and GPU H.264 — the label is the pixelflux mode name, not the backend. NVENC is transparent to the client.
+
+**Deployment fix** (pending commit): Add `SELKIES_AUTO_GPU=true` to `apply-nrp-e2e.sh` `--gpu-xorg` (and `--gpu`) env so all GPU pods get NVENC by default. No hardcoded renderD number needed (auto-detect).
+
+**Status**: ✅ verified working. Deployment env committed (`780c634`).
+
+### F78 — M3 streaming performance baseline + latency optimization levers
+Measured 2026-09-09 on NRP (Tesla V100-PCIE-16GB, driver 580.159.04, Xorg+NVIDIA DDX+NVENC):
+
+**Pipeline latency breakdown** (server-side, 60fps target, full-screen activity):
+```
+User input → [frame schedule 0-16ms] → [MIT-SHM capture ~0ms] → [NVENC ~3ms] → frame out
+             Total server-side p50: 31ms (min 12ms, max 433ms with idle gaps)
+E2E (user-observed): ~60ms = 31ms server + 15ms network (WebSocket) + 14ms client
+```
+
+**Damage-based capture** (key architecture insight):
+- Static desktop: 0-6 frames/10s (GPU enc 0%, bandwidth ~0) — correct, efficient
+- Active (moving window): 8-14 FPS actual (60fps target, limited by screen change rate)
+- Full-screen animation: approaches target FPS
+- Frame sizes: 0.1-21 KB (I-frame 21KB, P-frames 0.1-7KB depending on change magnitude)
+- This is NOT a bug — pixelflux only encodes when pixels change (bandwidth-efficient)
+
+**Optimization levers implemented** (commit `b945aa9`):
+| Lever | Env/Flag | Default | GPU Deploy | Effect |
+|-------|----------|---------|------------|--------|
+| Transport | `SELKIES_STREAM_MODE` / `--webrtc` | `websockets` | `websockets` | WebRTC = UDP, saves ~5-10ms (needs STUN/TURN) |
+| Damage threshold | `SELKIES_DAMAGE_THRESHOLD` | 10 | 5 | Encode sooner after change (~5ms faster response) |
+| Damage duration | `SELKIES_DAMAGE_DURATION` | 20 | 10 | Shorter coalescing window |
+| FPS | Browser sidebar setting | 30 | 30 | 60fps halves frame-wait (33→16ms) |
+| GPU encoder | `SELKIES_AUTO_GPU` | (unset=CPU) | `true` | NVENC 3ms vs CPU x264 12ms |
+
+**Regression test**: `scripts/perf-regression.sh` (in-pod, generates full-screen activity, measures frame interval p50). Gate: PASS<50ms, WARN<80ms, FAIL≥80ms.
+
+**Baseline doc**: `scripts/perf-baseline.md` (full data, optimization table, E2E breakdown).
+
+**Status**: ✅ measured + options implemented. User to verify WebRTC through NRP ingress (UDP may be blocked by haproxy).
 
 ---
 

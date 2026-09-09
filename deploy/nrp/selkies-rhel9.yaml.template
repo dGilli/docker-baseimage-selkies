@@ -56,8 +56,12 @@
 #              This enables pixelflux NVENC encoding while desktop rendering
 #              remains Xvfb + llvmpipe. DISABLE_ZINK=true is required because
 #              root/defaults/startwm.sh:4-8 otherwise forces Mesa zink on any
-#              node exposing nvidia-smi + /dev/dri (F60). GPU desktop rendering
-#              is the separate deferred M3 work item (F58).
+#              node exposing nvidia-smi + /dev/dri (F60).
+#              M3 (GPU desktop rendering) is opt-in: apply-nrp-e2e.sh --gpu-xorg
+#              adds XSERVER_BACKEND=nvidia-xorg, which svc-xorg/run uses to
+#              exec real Xorg on the node's exact driver (memory-bank F58).
+#              The @GPU_ENV@ placeholder line holds both envs when M3 is on;
+#              the template itself needs no other change.
 # =============================================================================
 apiVersion: apps/v1
 kind: Deployment

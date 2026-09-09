@@ -26,6 +26,22 @@ root/defaults/startwm.sh
 root/etc/s6-overlay/s6-rc.d/init-nginx/run
 root/etc/s6-overlay/s6-rc.d/init-selkies-config/run
 root/etc/s6-overlay/s6-rc.d/svc-docker/run
+# svc-xorg/run: M3 (2026-09-03) adds a guarded Xorg + NVIDIA DDX branch above
+# the Xvfb exec. Guard predicate = env-marker + file-exists (both content
+# based, per projectRules guard rule). On upstream fedora44 nothing sets
+# XSERVER_BACKEND=nvidia-xorg and /usr/local/bin/selu-xorg-config is not in
+# the tree (that path is a SLU additive file — see the [additive] audit) —
+# the guard is false, the pre-existing Xvfb exec runs unchanged. When M3 is
+# enabled but the config script declines (no NVIDIA runtime, download fail,
+# etc.), we log + fall through to the same Xvfb exec. See findings F58 +
+# decisions 2026-08-31 (GPU driver mismatch — boot-time userspace install).
+root/etc/s6-overlay/s6-rc.d/svc-xorg/run
+# svc-selkies/run: M3 (2026-09-08) adds a 1-line wait-for-X-socket before the
+# selkies exec. M3 Xorg+NVIDIA takes 2-4 min for boot-time module download;
+# without this wait, pixelflux starts before the X display exists and falls
+# back to a 1024x768 virtual default (no stream). On upstream fedora44 (Xvfb),
+# the socket appears instantly so the loop exits on the first iteration (no-op).
+root/etc/s6-overlay/s6-rc.d/svc-selkies/run
 root/selkies-proot
 
 # Intentionally absent:

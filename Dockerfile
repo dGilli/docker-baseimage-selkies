@@ -304,6 +304,14 @@ RUN \
     /lsiopy && \
   pip install . && \
   pip install setuptools && \
+  echo "**** patch selkies: damage threshold configurable ****" && \
+  sed -i 's/cs.damage_block_threshold = 10/cs.damage_block_threshold = int(os.environ.get("SELKIES_DAMAGE_THRESHOLD", "10"))/' \
+    /lsiopy/lib/python3.11/site-packages/selkies/selkies.py && \
+  sed -i 's/cs.damage_block_duration = 20/cs.damage_block_duration = int(os.environ.get("SELKIES_DAMAGE_DURATION", "20"))/' \
+    /lsiopy/lib/python3.11/site-packages/selkies/selkies.py && \
+  echo "**** patch selkies: --clearmodifiers only for ASCII (not F-keys) ****" && \
+  sed -i 's|command = \["xdotool", action, "--clearmodifiers", xdotool_arg\]|command = ["xdotool", action, "--clearmodifiers", xdotool_arg] if unicode_codepoint <= 0x7E else ["xdotool", action, xdotool_arg]|' \
+    /lsiopy/lib/python3.11/site-packages/selkies/input_handler.py && \
   echo "**** install selkies interposer ****" && \
   cd addons/js-interposer && \
   gcc -shared -fPIC -ldl \
@@ -347,8 +355,11 @@ RUN \
   usermod -s /bin/bash abc && \
   groupadd sudo && \
   usermod -aG sudo abc && \
-  echo '%sudo ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers && \
-  echo "**** proot-apps ****" && \
+   echo '%sudo ALL=(ALL:ALL) NOPASSWD: ALL' >> /etc/sudoers && \
+   echo "**** machine-id (D-Bus / gnome-terminal) ****" && \
+   cat /proc/sys/kernel/random/uuid | tr -d "-" > /etc/machine-id && \
+   mkdir -p /var/lib/dbus && cp /etc/machine-id /var/lib/dbus/machine-id && \
+   echo "**** proot-apps ****" && \
   mkdir /proot-apps/ && \
   PAPPS_RELEASE=$(curl -sX GET "https://api.github.com/repos/linuxserver/proot-apps/releases/latest" \
     | jq -r '.tag_name') && \
@@ -375,6 +386,13 @@ RUN \
 # add local files
 COPY /root /
 COPY --from=frontend /buildout /usr/share/selkies
+
+# M3: compile the VT shim for X.Org 1.20 in containers (RHEL9).
+# X 1.20's xf86OpenConsole() makes VT ioctls fatal; this LD_PRELOAD shim
+# intercepts them and returns success so Xorg can start headless. The nvidia
+# DDX does not depend on VTs for rendering (it uses the GPU scanout engine).
+RUN gcc -shared -fPIC -o /usr/local/lib/fakevt.so /usr/local/src/fakevt.c && \
+    rm -f /usr/local/src/fakevt.c
 
 # ports and volumes
 EXPOSE 3000 3001

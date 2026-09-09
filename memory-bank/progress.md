@@ -1,8 +1,9 @@
 # Progress
 
-**Last Updated**: 2026-09-01
+**Last Updated**: 2026-09-08
 
 ## Done
+- [x] 2026-09-08 — **M3 GPU desktop rendering: Xorg + NVIDIA DDX + NVENC stream VERIFIED** — 3 container-specific hurdles resolved: (1) RHEL9 X 1.20 VT fatal → `fakevt.so` LD_PRELOAD shim (F75, 20 preview iterations); (2) MIT-SHM cross-user BadAccess → Xorg runs as session user abc (F76); (3) NVENC GPU encoding → `SELKIES_AUTO_GPU=true` / direct `libnvidia-encode.so` (F77, NOT VA-API). Verified on NRP GTX 1080 Ti: `glxinfo` NVIDIA OpenGL 4.6.0, H.264 1920x924 @ 30 FPS, NVENC API v13.0, P-frames 595B (80% smaller than CPU). User browser E2E in progress (stream visible, ~60ms CPU latency; NVENC pending re-verify). Branch `feat/m3-gpu-xorg-ddx` @ `d7192ca` (4 commits). GH: #4 (tracking, comment with full table), #22 (Xorg+DDX hurdles), #23 (Xvfb+DRI3/EGL alternative). Next: `SELKIES_AUTO_GPU` in deploy script, push+PR, multi-node, merge+DOCS.
 - [x] 2026-09-01 — **Branch main image = `Dockerfile` (upstream design alignment) + production pin → `v5-llvmpipe` (c9)** — per user decision, `Dockerfile.rhel9` renamed to `Dockerfile` (supersedes the baseline fedora content at that path; the F22 variant-file deviation resolved); baseline `Dockerfile.aarch64` deleted (intentionally absent until RHEL9 arm64 work — first [intentionally-absent] entry); delta budget now **6 modified + 106 additive** (delta gate PASS); fork CI hadolint target updated; NO image rebuild (rename changes no content). Production pin bumped `v4-llvmpipe` (c8) → **`v5-llvmpipe` = c9** `a4e303101691` (manifest `sha256:6b9ee566…`) — immutable tag sequence continues, old pins retained for one-step rollback; registry push + deploy defaults updated. ADR: `decisions.md` 2026-09-01 (branch main image). Commits: `133f665`, `a1b272c`.
 - [x] 2026-09-01 — **Fork reconciliation onto the upstream/fedora44 baseline + fork maintenance workflow** — `rhel9` = f44 (`1c2870d`) + curated 8-commit milestone series (phase-1 / GNOME / R1 / phase-1.5 / GPU / journal / tooling / svc-dbus fix); 17-row merge resolved, tip tree == resolved merge tree (verified); **delta budget = 5 modified upstream files** (allowlisted) + 96 additive + 0 generated-touch + 0 drift. Boot matrix caught + fixed a real regression (F67: f44's svc-dbus deletion crashes GNOME 40's power indicator — 6 files restored verbatim, additive). Post-fix local matrix ALL PASS (GNOME, openbox+1280x720, RESTART_APP, hardening) + NRP smoke PASS (CPU exp-19-11.sdsc; GPU k8s-haosu-15.sdsc RTX 2080 Ti — **NVENC 13.0**, GBM export proven inert, F68). PR #2 merged (ff, CI gate green); branch protection active (F69/F70); tooling: `scripts/delta-allowlist.txt` + `scripts/upstream-delta.sh` + `.github/workflows/fork-maintenance.yml`; sync procedure codified (build-deployment §Upstream Sync Procedure); findings F67–F73; ADR (baseline + curated history + delta model). Image **c9** `a4e303101691` pushed (`:c9` + `:latest`); production pin `v4-llvmpipe` UNCHANGED (c8). **Pending user**: milestone tag ID + pin-bump decision. See: `tasks/2026-09/010901_reconcile-f44-baseline.md`.
 - [x] 2026-09-01 — **GPU utilization monitoring + self-service start path finalized** — documented and live-tested the correct way to verify GPU use in the selkies desktop: idle `0%` is expected; desktop GL is llvmpipe; NVENC appears during active stream changes; Blender must use Cycles CUDA/OptiX to show GPU compute. On running pod `slu-rhel9-e2e-545d4555d5-gq5zf`, a synthetic selkies stream + screen-change test produced NVENC logs and `nvidia-smi dmon` encoder/power activity. Also hardened `apply-nrp-e2e.sh` to reuse an existing namespace `dockerhub-dgilli` pull secret when local container auth is unavailable. Findings **F65–F66**; self-service commands in `activeContext.md#GPU-M2-clean-path---utilization-state-2026-08-31--2026-09-01`.
@@ -26,16 +27,18 @@
 - [x] 2026-08-28 — **Phase 1.5 (dev scope) DONE**: pushed `docker.io/dgilli/selkies-rhel9:latest` (first push OCI manifest `sha256:46246466…` = c7; **re-pushed same day with R1 c8 = manifest `sha256:b70d42e3…`, current**); verified pull-by-digest + cold-boot smoke (web 200 both ports, ws 101, wallpaper on fresh volume, certs auto-gen); NRP k8s mapping `deploy/nrp-selkies-rhel9.yaml` (single-port fit: ws same-origin via nginx `/websocket`); gates closed **F28** (NRP templates have no securityContext — rootful OK), **F30** (Docker Hub dev; production tag ceremony deferred by user), **F55** (docker default seccomp allows ptrace on kernel ≥4.8 — proot-apps R1 needs no seccomp override). See: `tasks/2026-08/280828_phase1-5-nrp-dev-push.md`
 
 ## In Progress
-- None for GPU M0–M2. Future roadmap items are tracked but not yet scoped as active work.
+- **M3 close-out** (GH #4): user browser E2E verification (NVENC latency), add `SELKIES_AUTO_GPU=true` to deploy script, push branch + PR to `rhel9`, multi-node verification, merge + DOCS + task doc.
 
 ## Next / Future Roadmap (user-tracked 2026-09-01)
-1. **GPU desktop rendering** — implement actual GPU use for desktop rendering (currently M3/deferred; NVENC works, desktop rendering is llvmpipe).
-2. **Project CLI/UX improvements** — make workstation lifecycle and operator workflows easier and clearer.
-3. **Fix selkies menu app installer** — repair the desktop menu/app installer flow (related to R1/proot-apps).
-4. **Project/fork maintenance workflow** — define proper upstream/fork branching, release, review, and maintenance process.
-5. **Proper SLU image registry** — replace personal/private Docker Hub flow with a proper SLU registry and release workflow.
-6. **Docs, docs, docs** — expand user, operator, maintainer, architecture, GPU, registry, and CLI documentation.
+All items are **GitHub issues** on `dGilli/docker-baseimage-selkies`, kept on the project board — canonical mapping + board commands: `toc.md#GH-Tracking`.
+1. ~~**GPU desktop rendering** → **GH #4**~~ — **DONE 2026-09-08** (pending merge): Xorg + NVIDIA DDX + NVENC stream verified. 3 hurdles: fakevt.so (F75), MIT-SHM session-user (F76), NVENC auto-GPU (F77). Branch `feat/m3-gpu-xorg-ddx` @ `d7192ca`. Sub-issues: #22 (Xorg+DDX), #23 (Xvfb+DRI3/EGL alternative). Close-out: deploy env + PR + multi-node + merge.
+2. **Project CLI/UX improvements** → **GH #5** — make workstation lifecycle and operator workflows easier and clearer.
+3. **Fix selkies menu app installer** → **GH #6** — repair the desktop menu/app installer flow (related to R1/proot-apps; follow-on catalog = **#10**).
+4. **Project/fork maintenance workflow** → **GH #7** — define proper upstream/fork branching, release, review, and maintenance process.
+5. **Proper SLU image registry** → **GH #8** — replace personal/private Docker Hub flow with a proper SLU registry and release workflow.
+6. **Docs, docs, docs** → **GH #9** — expand user, operator, maintainer, architecture, GPU, registry, and CLI documentation.
 
+Also open (not in the 6-item list): **GH #11** aarch64 RHEL9 variant · **GH #12** Wayland (phase-2).
 Detailed roadmap context: `productContext.md#Future-Roadmap-user-tracked-2026-09-01`.
 
 ## Completed context still relevant

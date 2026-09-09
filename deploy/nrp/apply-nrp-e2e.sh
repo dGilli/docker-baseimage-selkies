@@ -24,7 +24,7 @@
 #                      [--domain D] [--dns1 IP] [--dns2 IP]
 #                      [--cpu N] [--memory M]
 #                      [--password-secret NAME] [--password-key K]
-#                      [--gpu] [--accept-nrp-utilization]
+#                      [--gpu] [--gpu-xorg] [--accept-nrp-utilization]
 #
 # Defaults: name=slu-rhel9-e2e  image=docker.io/dgilli/selkies-rhel9:v5-llvmpipe
 #           domain=nrp-nautilus.io (ADJUST to the current NRP ingress domain)
@@ -38,6 +38,20 @@
 #   NRP monitors GPU utilization; sustained >40% is expected. Interactive runs
 #   prompt for confirmation unless --accept-nrp-utilization is supplied.
 #
+# M3 (GPU desktop rendering — opt-in):
+#   --gpu-xorg implies --gpu and additionally sets XSERVER_BACKEND=nvidia-xorg
+#   in the pod. The in-image svc-xorg/run guard detects the opt-in + the
+#   NVIDIA runtime and execs real Xorg on the node's exact driver version
+#   (fetched per-pod from international.download.nvidia.com, extract-only —
+#   memory-bank F58). Cost: +2-5 min pod startup (one-time per driver version
+#   per pod), so the Ready wait extends from 240s to 600s. On any failure of
+#   the M3 config step, svc-xorg falls back to the M2 Xvfb+llvmpipe path
+#   transparently — the pod still becomes Ready.
+#   Success metrics (verified in-pod after Ready):
+#     - GPU desktop:  glxinfo | grep "OpenGL renderer"  →  "NVIDIA ..."
+#     - CUDA apps:    nvidia-smi + user workload (e.g., Blender Cycles CUDA)
+#     - NVENC stream: unchanged from M2 (still pixelflux on the toolkit libs)
+#
 # Teardown:
 #   kubectl -n <ns> delete -l app=<name>
 # =============================================================================
@@ -49,7 +63,7 @@ DOMAIN="nrp-nautilus.io"
 DNS1="8.8.8.8" ; DNS2="8.8.4.4"
 CPU="2" ; MEMORY="4Gi"
 PSECRET="selkies-password" ; PKEY="password"
-DRY=0 ; GPU=0 ; ACCEPT_NRP_UTILIZATION=0
+DRY=0 ; GPU=0 ; GPU_XORG=0 ; WEbrtc=0 ; ACCEPT_NRP_UTILIZATION=0
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="$SELF/selkies-rhel9.yaml.template"
 PULLSECRET="dockerhub-dgilli"
@@ -69,8 +83,10 @@ while [[ $# -gt 0 ]]; do
     --password-key)      PKEY="$2"; shift 2;;
     --dry-run)           DRY=1; shift;;
     --gpu)               GPU=1; shift;;
+    --gpu-xorg)          GPU=1; GPU_XORG=1; shift;;
+    --webrtc)            WEbrtc=1; shift;;
     --accept-nrp-utilization) ACCEPT_NRP_UTILIZATION=1; shift;;
-    -h|--help)           sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    -h|--help)           sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) echo "unknown arg: $1 (try --help)" >&2; exit 2;;
   esac
 done
@@ -218,7 +234,20 @@ if [[ $GPU -eq 1 ]]; then
   GPU_LIMITS=$'            nvidia.com/gpu: "1"'
   GPU_REQUESTS=$'            nvidia.com/gpu: "1"'
   GPU_ENV='        - name: DISABLE_ZINK\n          value: "true"'
+  GPU_ENV="${GPU_ENV}\n        - name: SELKIES_AUTO_GPU\n          value: \"true\""
+  GPU_ENV="${GPU_ENV}\n        - name: SELKIES_DAMAGE_THRESHOLD\n          value: \"5\""
+  GPU_ENV="${GPU_ENV}\n        - name: SELKIES_DAMAGE_DURATION\n          value: \"10\""
   STRATEGY='  strategy:\n    type: Recreate'
+  if [[ $GPU_XORG -eq 1 ]]; then
+    # M3 opt-in: in-image svc-xorg/run sees this + /usr/local/bin/selu-xorg-config
+    # + /usr/libexec/Xorg and switches from Xvfb to real Xorg on the node's
+    # driver. See findings F58 and the 2026-08-31 ADR.
+    GPU_ENV="${GPU_ENV}\n        - name: XSERVER_BACKEND\n          value: \"nvidia-xorg\""
+  fi
+fi
+# WebRTC transport (lower latency than WebSocket; requires UDP/STUN reachability)
+if [[ $WEbrtc -eq 1 ]]; then
+  GPU_ENV="${GPU_ENV:-}\n        - name: SELKIES_STREAM_MODE\n          value: \"webrtc\""
 fi
 # (values must not contain the sed delimiter '|' — none of the defaults do)
 sed -e "s|@@NAME@@|$NAME|g" \
@@ -242,7 +271,10 @@ fi
 GPU_RESOURCE_LINE_RE='^            nvidia\.com/gpu: "1"$'
 GPU_ENV_NAME_RE='^        - name: DISABLE_ZINK$'
 GPU_ENV_VALUE_RE='^          value: "true"$'
+GPU_AUTO_GPU_RE='^        - name: SELKIES_AUTO_GPU$'
 GPU_STRATEGY_TYPE_RE='^    type: Recreate$'
+GPU_XORG_ENV_NAME_RE='^        - name: XSERVER_BACKEND$'
+GPU_XORG_ENV_VALUE_RE='^          value: "nvidia-xorg"$'
 if [[ $GPU -eq 1 ]]; then
   if ! grep -qE "$GPU_RESOURCE_LINE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest is missing the nvidia GPU limit/request line"
@@ -250,12 +282,26 @@ if [[ $GPU -eq 1 ]]; then
   if ! grep -qE "$GPU_ENV_NAME_RE" "$RENDERED" || ! grep -qE "$GPU_ENV_VALUE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest is missing DISABLE_ZINK=true"
   fi
+  if ! grep -qE "$GPU_AUTO_GPU_RE" "$RENDERED" || ! grep -qE "$GPU_ENV_VALUE_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest is missing SELKIES_AUTO_GPU=true"
+  fi
   if ! grep -qE "$GPU_STRATEGY_TYPE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest is missing the Recreate GPU update strategy"
   fi
   log "GPU cross-check passed: nvidia GPU limit/request line present"
   log "GPU cross-check passed: DISABLE_ZINK=true present"
+  log "GPU cross-check passed: SELKIES_AUTO_GPU=true present (NVENC)"
   log "GPU cross-check passed: Recreate GPU update strategy present"
+  if [[ $GPU_XORG -eq 1 ]]; then
+    if ! grep -qE "$GPU_XORG_ENV_NAME_RE" "$RENDERED" || ! grep -qE "$GPU_XORG_ENV_VALUE_RE" "$RENDERED"; then
+      die "GPU cross-check failed: --gpu-xorg set but rendered manifest is missing XSERVER_BACKEND=nvidia-xorg"
+    fi
+    log "GPU cross-check passed: XSERVER_BACKEND=nvidia-xorg present (M3 active)"
+  else
+    if grep -qE "$GPU_XORG_ENV_NAME_RE" "$RENDERED"; then
+      die "GPU cross-check failed: rendered manifest contains XSERVER_BACKEND without --gpu-xorg"
+    fi
+  fi
 else
   if grep -qE "$GPU_RESOURCE_LINE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest contains an nvidia GPU resource line without --gpu"
@@ -263,8 +309,14 @@ else
   if grep -qE "$GPU_ENV_NAME_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest contains DISABLE_ZINK without --gpu"
   fi
+  if grep -qE "$GPU_AUTO_GPU_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest contains SELKIES_AUTO_GPU without --gpu"
+  fi
   if grep -qE "$GPU_STRATEGY_TYPE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest contains a Recreate strategy without --gpu"
+  fi
+  if grep -qE "$GPU_XORG_ENV_NAME_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest contains XSERVER_BACKEND without --gpu"
   fi
   log "GPU cross-check passed: no nvidia GPU resource line rendered"
 fi
@@ -272,10 +324,15 @@ log "rendered manifest: $RENDERED$([[ $DRY -eq 1 ]] && echo ' (kept for inspecti
 run kubectl -n "$NS" apply -f "$RENDERED"
 
 # --- 6. wait + report -------------------------------------------------------------
+# M3 downloads the driver archive per-pod (extract-only, ~200MB) → +2-5 min
+# on top of the normal pull+s6 boot budget. Non-GPU and M2-GPU keep the
+# existing 240s.
+READY_TIMEOUT=240
+if [[ $GPU_XORG -eq 1 ]]; then READY_TIMEOUT=600; fi
 if [[ $DRY -eq 0 ]]; then
-  log "waiting for pod Ready (timeout 240s)…"
-  kubectl -n "$NS" wait --for=condition=Ready pod -l "app=$NAME" --timeout=240s \
-    || die "pod not Ready — inspect: kubectl -n $NS logs -l app=$NAME"
+  log "waiting for pod Ready (timeout ${READY_TIMEOUT}s)…"
+  kubectl -n "$NS" wait --for=condition=Ready pod -l "app=$NAME" --timeout="${READY_TIMEOUT}s" \
+    || die "pod not Ready — inspect: kubectl -n $NS logs -l app=$NAME ; M3 pod: also kubectl -n $NS exec <pod> -- cat /tmp/selu-xorg-config.log /tmp/Xorg.log"
 fi
 cat <<EOF
 [apply-nrp-e2e] E2E URL : https://$NAME.$DOMAIN
@@ -289,6 +346,20 @@ if [[ $GPU -eq 1 ]]; then
 [apply-nrp-e2e] GPU     : nvidia.com/gpu=1 (free scheduling, no node targeting)
               NVENC is confirmed in the selkies log after a browser connection:
               kubectl -n $NS logs -l app=$NAME --tail=200 | grep -E 'NVENC|Encoder'
+EOF
+fi
+if [[ $GPU_XORG -eq 1 ]]; then
+  cat <<EOF
+[apply-nrp-e2e] M3      : XSERVER_BACKEND=nvidia-xorg (real Xorg on the node driver)
+              Verify GPU desktop rendering (NVIDIA, not llvmpipe):
+                POD=\$(kubectl -n $NS get pod -l app=$NAME -o jsonpath='{.items[0].metadata.name}')
+                kubectl -n $NS exec "\$POD" -- xdpyinfo | head -20
+                kubectl -n $NS exec "\$POD" -- bash -lc 'DISPLAY=:1 glxinfo | grep -E "OpenGL (vendor|renderer|version) string"'
+                kubectl -n $NS exec "\$POD" -- nvidia-smi --query-gpu=name,driver_version --format=csv
+                kubectl -n $NS exec "\$POD" -- cat /tmp/selu-xorg-config.log
+              If M3 declined, svc-xorg fell back to Xvfb and the pod is still
+              usable (M2 path). The in-image fallback log lives in the
+              container boot log (kubectl logs above).
 EOF
 fi
 cat <<EOF
