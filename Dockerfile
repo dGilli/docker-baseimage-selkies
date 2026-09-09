@@ -309,6 +309,20 @@ RUN \
     /lsiopy/lib/python3.11/site-packages/selkies/selkies.py && \
   sed -i 's/cs.damage_block_duration = 20/cs.damage_block_duration = int(os.environ.get("SELKIES_DAMAGE_DURATION", "20"))/' \
     /lsiopy/lib/python3.11/site-packages/selkies/selkies.py && \
+  echo "**** patch selkies: --clearmodifiers only for ASCII (not F-keys) ****" && \
+  python3.11 -c "
+import re
+p = '/lsiopy/lib/python3.11/site-packages/selkies/input_handler.py'
+s = open(p).read()
+# Only use --clearmodifiers for ASCII-range codepoints (<=0x7E), not for
+# function keys (0x01000000 range) which would nuke active modifier state.
+old = 'command = [\"xdotool\", action, \"--clearmodifiers\", xdotool_arg]'
+new = 'command = [\"xdotool\", action, \"--clearmodifiers\", xdotool_arg] if unicode_codepoint <= 0x7E else [\"xdotool\", action, xdotool_arg]'
+assert old in s, 'patch target not found'
+s = s.replace(old, new, 1)
+open(p, 'w').write(s)
+print('  input_handler.py patched: --clearmodifiers gated to ASCII range')
+" && \
   echo "**** install selkies interposer ****" && \
   cd addons/js-interposer && \
   gcc -shared -fPIC -ldl \
