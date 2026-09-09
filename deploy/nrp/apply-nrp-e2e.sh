@@ -233,6 +233,7 @@ if [[ $GPU -eq 1 ]]; then
   GPU_LIMITS=$'            nvidia.com/gpu: "1"'
   GPU_REQUESTS=$'            nvidia.com/gpu: "1"'
   GPU_ENV='        - name: DISABLE_ZINK\n          value: "true"'
+  GPU_ENV="${GPU_ENV}\n        - name: SELKIES_AUTO_GPU\n          value: \"true\""
   STRATEGY='  strategy:\n    type: Recreate'
   if [[ $GPU_XORG -eq 1 ]]; then
     # M3 opt-in: in-image svc-xorg/run sees this + /usr/local/bin/selu-xorg-config
@@ -263,6 +264,7 @@ fi
 GPU_RESOURCE_LINE_RE='^            nvidia\.com/gpu: "1"$'
 GPU_ENV_NAME_RE='^        - name: DISABLE_ZINK$'
 GPU_ENV_VALUE_RE='^          value: "true"$'
+GPU_AUTO_GPU_RE='^        - name: SELKIES_AUTO_GPU$'
 GPU_STRATEGY_TYPE_RE='^    type: Recreate$'
 GPU_XORG_ENV_NAME_RE='^        - name: XSERVER_BACKEND$'
 GPU_XORG_ENV_VALUE_RE='^          value: "nvidia-xorg"$'
@@ -273,11 +275,15 @@ if [[ $GPU -eq 1 ]]; then
   if ! grep -qE "$GPU_ENV_NAME_RE" "$RENDERED" || ! grep -qE "$GPU_ENV_VALUE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest is missing DISABLE_ZINK=true"
   fi
+  if ! grep -qE "$GPU_AUTO_GPU_RE" "$RENDERED" || ! grep -qE "$GPU_ENV_VALUE_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest is missing SELKIES_AUTO_GPU=true"
+  fi
   if ! grep -qE "$GPU_STRATEGY_TYPE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest is missing the Recreate GPU update strategy"
   fi
   log "GPU cross-check passed: nvidia GPU limit/request line present"
   log "GPU cross-check passed: DISABLE_ZINK=true present"
+  log "GPU cross-check passed: SELKIES_AUTO_GPU=true present (NVENC)"
   log "GPU cross-check passed: Recreate GPU update strategy present"
   if [[ $GPU_XORG -eq 1 ]]; then
     if ! grep -qE "$GPU_XORG_ENV_NAME_RE" "$RENDERED" || ! grep -qE "$GPU_XORG_ENV_VALUE_RE" "$RENDERED"; then
@@ -295,6 +301,9 @@ else
   fi
   if grep -qE "$GPU_ENV_NAME_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest contains DISABLE_ZINK without --gpu"
+  fi
+  if grep -qE "$GPU_AUTO_GPU_RE" "$RENDERED"; then
+    die "GPU cross-check failed: rendered manifest contains SELKIES_AUTO_GPU without --gpu"
   fi
   if grep -qE "$GPU_STRATEGY_TYPE_RE" "$RENDERED"; then
     die "GPU cross-check failed: rendered manifest contains a Recreate strategy without --gpu"
