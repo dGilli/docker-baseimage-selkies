@@ -41,13 +41,25 @@
 #              via gsettings at boot, proot apps reinstall on demand) +
 #              /dev/shm. (Their /cache + /home/rheluser mounts are unused by
 #              our image.)
-#   root:      NO securityContext — the NRP pattern carries none (F28,
-#              verified in the reference templates). Cluster check: namespace
-#              Pod Security Admission must not be `restricted` (that forbids
-#              root): kubectl -n <ns> get ns <ns> \
+#   root:      rootful (F28) with a MINIMAL container securityContext:
+#              capabilities add SYS_PTRACE (F79). proot-apps (R1) needs
+#              ptrace; kernel YAMA ptrace_scope is node-dependent — on
+#              scope-2 (admin-only) nodes (observed: UCSC fiona8) only
+#              processes holding CAP_SYS_PTRACE may ptrace, and the
+#              container default cap set lacks it, so proot install/run
+#              die with `ptrace(TRACEME): Operation not permitted`
+#              (download succeeds, app never shows up). The in-image proot
+#              wrapper (init-selkies-config) routes proot through sudo
+#              (root keeps the cap) on such nodes, dropping the guest app
+#              back to the caller uid/gid. scope 0/1 nodes are unaffected.
+#              Cluster check: namespace Pod Security Admission must not be
+#              `restricted` or `baseline` (both reject rootful pods and
+#              added capabilities): kubectl -n <ns> get ns <ns> \
 #              -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}'
 #   seccomp:   stock docker default allows ptrace on kernel >= 4.8 — proot-apps
-#              (R1) needs no seccomp override (F55).
+#              (R1) needs no seccomp override (F55). YAMA (above) is a
+#              separate, node-level kernel LSM — F55's seccomp finding did
+#              not cover it.
 #   resources: limits == requests (Guaranteed QoS per NRP policy). Reference
 #              defaults: 2 CPU / 4Gi; NRP interactive cap 16 CPU / 32Gi.
 #   GPU:       the GPU resource, env, and strategy placeholders are filled by
@@ -123,6 +135,10 @@ spec:
           name: dshm
         - mountPath: /config
           name: config
+        securityContext:
+          capabilities:
+            add:
+            - SYS_PTRACE
       dnsPolicy: None
       dnsConfig:
         nameservers:
