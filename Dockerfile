@@ -287,6 +287,15 @@ RUN \
 # (added in libxkbcommon 1.5), but RHEL 9 ships libxkbcommon 1.4 on every stream.
 # 1.0.1 builds clean against 1.4 (verified in ubi9 container, 2026-08-27).
 # evdev needs Python.h (python3.11-devel) — installed in build deps.
+# python-xlib: 348bc4f's pyproject declared it as a git dep on
+# github.com/selkies-project/python-xlib — that repo was DELETED upstream
+# (404 observed 2026-09-18; builds worked until then), breaking this RUN.
+# The fork was a mirror of PyPI's python-xlib: upstream later vendored it
+# into the selkies tree (src/selkies/Xlib), and that vendored tree is
+# byte-identical to PyPI python-xlib 0.33 (diff -rq verified 2026-09-18).
+# pynput (a selkies dep) already pulls python-xlib from PyPI on X11, so we
+# pin it explicitly instead of the dead git URL — deterministic, and the
+# exact library 348bc4f was developed against.
 RUN \
   echo "**** install selkies ****" && \
   curl -o \
@@ -294,9 +303,10 @@ RUN \
     "https://github.com/selkies-project/selkies/archive/348bc4f61da66198573e7e57db9a266aca1991d5.tar.gz" && \
   cd /tmp && \
   tar xf selkies.tar.gz && \
-  cd selkies-* && \
+  cd selkies-348bc4f61da66198573e7e57db9a266aca1991d5 && \
   sed -i '/"av>/d' pyproject.toml && \
   sed -i '/cryptography/d' pyproject.toml && \
+  sed -i 's|python-xlib @ https://github.com/selkies-project/python-xlib/archive/master.zip|python-xlib==0.33|' pyproject.toml && \
   sed -i 's/xkbcommon/xkbcommon<1.5/g' pyproject.toml && \
   python3.11 \
     -m venv \
@@ -361,8 +371,14 @@ RUN \
    mkdir -p /var/lib/dbus && cp /etc/machine-id /var/lib/dbus/machine-id && \
    echo "**** proot-apps ****" && \
   mkdir /proot-apps/ && \
-  PAPPS_RELEASE=$(curl -sX GET "https://api.github.com/repos/linuxserver/proot-apps/releases/latest" \
-    | jq -r '.tag_name') && \
+  # Pinned (2026-09-18, GH #6): floating `releases/latest` silently moved
+  # the tool between builds — c8 (2026-08-28) shipped the R1-verified
+  # 0.3.2, the c9 rebuild (2026-09-01) shipped 0.4.0, and 0.5.0
+  # (2026-09-12, untested: drops `--netcoop` from the run path, ships a
+  # different proot build) would land in the next build by drift.
+  # 0.4.0 = the version shipping in c9/m3-preview-23. Evaluate newer
+  # releases deliberately.
+  PAPPS_RELEASE=0.4.0 && \
   curl -L https://github.com/linuxserver/proot-apps/releases/download/${PAPPS_RELEASE}/proot-apps-x86_64.tar.gz \
     | tar -xzf - -C /proot-apps/ && \
   echo "${PAPPS_RELEASE}" > /proot-apps/pversion && \

@@ -13,8 +13,9 @@
 #   2. (re)create docker-registry secret `dockerhub-dgilli` from local auth
 #   3. verify generic secret `selkies-password` (key `password`) exists
 #   4. Pod Security Admission check: namespace enforce must NOT be
-#      `restricted` or `baseline` (our desktop runs rootful with no
-#      securityContext — F28; both modes reject such pods)
+#      `restricted` or `baseline` (our desktop runs rootful — F28 — with a
+#      minimal securityContext adding the SYS_PTRACE capability for
+#      proot-apps on YAMA scope-2 nodes — F79; both modes reject such pods)
 #   5. render the template (the standard NRP placeholder set — same sed
 #      expressions the NRP renderer would apply) and kubectl apply
 #   6. wait for the pod Ready, print URL + login + teardown command
@@ -217,7 +218,7 @@ WARN="$(kubectl -n "$NS" get ns "$NS" -o jsonpath='{.metadata.labels.pod-securit
 log "PSA labels: enforce=${ENFORCE:-<unset>} audit=${AUDIT:-<unset>} warn=${WARN:-<unset>}"
 case "$ENFORCE" in
   restricted|baseline)
-    die "namespace enforces PSA '$ENFORCE' — the desktop pod is rootful with no securityContext (F28); that mode rejects it. Use a namespace at 'privileged' (or unlabeled)."
+    die "namespace enforces PSA '$ENFORCE' — the desktop pod is rootful (F28) and adds the SYS_PTRACE capability (F79); that mode rejects it. Use a namespace at 'privileged' (or unlabeled)."
     ;;
   privileged) log "PSA enforce=privileged — rootful pod allowed" ;;
   "")         log "no PSA enforce label — rootful pod allowed" ;;
