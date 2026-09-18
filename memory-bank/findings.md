@@ -667,6 +667,40 @@ E2E (user-observed): ~60ms = 31ms server + 15ms network (WebSocket) + 14ms clien
 
 ---
 
+### F79 — proot-apps broken on YAMA ptrace_scope=2 nodes (GH #6 regression): node-dependent ptrace denial; fix = SYS_PTRACE cap + sudo wrapper + pins
+**Symptom (user-reported 2026-09-18)**: dashboard app install → terminal opens → rootfs downloads → app never shows up (no launcher entry, not launchable). Reproduced on NRP `fiona8-0.calit2.uci.edu` (UCSC; containerd + AppArmor node), image `m3-preview-23`.
+
+**Root cause (all verified live in-pod)**:
+- Node kernel YAMA `ptrace_scope=2` (admin-only: ptrace requires CAP_SYS_PTRACE) — **node-dependent**: this host = 0, fullerton (R1-verified 2026-08-28) = 0/1, fiona8-0 = 2. Free scheduling (no node targeting) put the pod on a scope-2 node → "worked before, broken again".
+- Container `CapEff=CapBnd=a80425fb` (stock default set — no SYS_PTRACE bit) and the selkies agent/st run as `abc` with `CapEff=0` → **every** proot invocation (ptrace-based) fails `ptrace(TRACEME): Operation not permitted`, as abc *and* as root.
+- Ruled out: seccomp (`Seccomp: 0` — none), `no_new_privs` (`NoNewPrivs: 0`), SELinux (absent — AppArmor node). F55's "stock docker default allows ptrace" covers **seccomp only** — YAMA is a separate kernel LSM it never addressed.
+- Install anatomy: `dl_layer` (download/extract — no proot) succeeds = "downloads something"; both `proot -R … /install` calls die EPERM = no menu entries/icons written = "app never shows up"; the dashboard "Installed" badge is browser `localStorage` (F53) so it reports success regardless.
+
+**Fix candidates rejected (tested live)**:
+- **File capabilities** (`setcap cap_sys_ptrace+ep proot`): exec of the file-capable binary by abc → `EPERM` — AppArmor capability mediation (containerd/AppArmor node). Dead end here.
+- **k8s `securityContext` cap alone**: insufficient — the cap only reaches root processes; the abc callers keep `CapEff=0`, and YAMA checks the caller's effective cap at `PTRACE_TRACEME`.
+- **sudo alone**: insufficient without the cap (container bounding set lacks it).
+
+**Shipped fix (PR #25 → `e38aa7b`; image `:papps-fix` = `10c646b3`)**:
+- NRP template: container `securityContext.capabilities.add: [SYS_PTRACE]` — minimal; namespace is PSA-unlabeled (verified); `baseline`/`restricted` would reject cap-add, and `apply-nrp-e2e.sh` already dies on those.
+- `init-selkies-config/run`: proot wrapper installed with the proot-apps bootstrap (re-wrapped after every copy, incl. the pversion-change re-copy): scope 0/1 → direct (unchanged); scope 2 + passwordless sudo → `sudo env <DISPLAY/XAUTHORITY/HOME/XDG_RUNTIME_DIR/DBUS/PULSE/WAYLAND/USER/LOGNAME passthrough> proot-real "$@"` (root holds the cap through the TRACEME check); scope 3 → clear error, RC=1. The wrapper derives `proot-real` via `dirname $0` (must sit next to it).
+- The shipped proot build (2023, proot-me; options `-r -b -q -w -v -V -h -k -0 -i -p -n -l -R -S`) has **no `-u/-g`** → on scope-2 nodes the guest app runs as **root** inside the chroot.
+- **proot auto-binds `$HOME` into the guest** (verified by inode identity: guest `/config` == host `/config` iff `HOME=/config`; `HOME=/root` or `/tmp` → not bound) — this is the R1 "app dash entry" mechanism: the guest `/install` writes menu entries + desktop shortcut into the host GNOME home. Corollary: guest-root writes reach the host `/config` → the wrapper normalizes ownership on guest exit (rootfs via the `-R` arg + `/config/{.local,Desktop,.config,.cache}`), normal return + TERM/INT trap; SIGKILL orphans self-heal on the next guest-root run (verified: 4 root-owned files → 0). Subtlety: inside the wrapper's `sh -c`, `$2` in a function shadows the shell positional — capture into a variable first (`RF="$2"`).
+- **Bonus unlocked**: proot-apps 0.4.0's `nvidia_binds` (guest GPU passthrough: libcuda/libnvidia-*/EGL/GLX/Vulkan ICD/GBM/nvidia-smi binds) now actually works on scope-2 GPU nodes — user's **Blender 5.2.1 LTS Cycles render showed the GTX 1080 Ti as a CUDA device and allocated 1726 MiB**; clean release on exit. (M2's "Blender viewport is llvmpipe; Cycles needs GPU" follow-up is satisfied for proot apps.)
+
+**Build/supply-chain findings from the same incident**:
+- `Dockerfile` floated proot-apps on `releases/latest`: c8 (08-28) shipped the R1-verified **0.3.2**, the c9 rebuild (09-01) silently shipped **0.4.0**, and **0.5.0** (09-12; untested — drops `-n/--netcoop` from the run path, ships a different proot build) would have drifted in at the next build → **pinned 0.4.0** (evaluate 0.5.0 deliberately; separate task).
+- selkies 348bc4f's pyproject git dep `github.com/selkies-project/python-xlib` was **deleted upstream** (404 observed 2026-09-18; builds were green until then) → pinned **`python-xlib==0.33`** from PyPI (upstream later vendored the fork as `src/selkies/Xlib`; `diff -rq` shows the vendored tree is byte-identical to PyPI 0.33; pynput pulls python-xlib transitively on X11 anyway).
+
+**E2E verified (2026-09-18, NRP fiona8-0 scope-2, `:papps-fix`)**: dashboard install blender (2.3 GB) → launcher entries `abc`-owned (guest-root `/install` + exit normalization) → launch → root proot + nvidia_binds → Blender 5.2.1 LTS running, Cycles CUDA device = GTX 1080 Ti, render allocated 1726 MiB (nvidia-smi compute-apps) → close → 0 proot chain, GPU memory released, 0 root-owned files. Local (scope 0) regression: filezilla install/run/render PASS (R1 chain + bwrap stub + `WARNING: Glycin running without sandbox`), forced scope-2/scope-3 branch matrix PASS incl. SIGKILL self-heal.
+
+**Limitations**: scope-3 nodes (tracing fully disabled) have no in-container workaround (clear error; none observed in the fleet); hardened image (no sudo) cannot use the scope-2 path (clear error); concurrent installs of the same app race — two `dl_layer` tar extracts into one dir → `tar: Cannot stat` (observed once: operator in-pod install vs user's browser install at the same time; the `DOWNLOADING` marker is not a lock; loser re-downloads, state converges).
+
+**Status**: ✅ fixed + merged (PR #25 → `e38aa7b`) + E2E-verified on a scope-2 node 2026-09-18 (user browser: install → launcher → Cycles CUDA render).
+**Evidence**: PR #25 diff; /tmp/opencode/{papps-qa.png, smoke-final.png, blender-live.png, papps/{032,040,050}}; NRP pod `slu-rhel9-e2e-6b48d56875-7l6zw` (fiona8-0.calit2.uci.edu); nvidia-smi compute-apps 1726 MiB allocation.
+
+---
+
 ## Appendix: Local Test-Rig Facts (2026-08-27)
 - Host: RHEL 9.8 (Plow), subscription-registered (real cdn.redhat.com repos — authoritative for RHEL9 package questions); EPEL/CRB/VSCode/Chrome repos enabled
 - podman 5.8.2, rootless; cgroupv2 ✅; `mknod` gamepad nodes will fail → code's `touch` fallback handles it; sudo-podman/`--privileged` fallback documented

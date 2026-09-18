@@ -2,6 +2,14 @@
 
 ## Tasks Completed
 
+### 2026-09-18: proot-apps on YAMA ptrace_scope=2 nodes (GH #6 installer regression)
+- Root cause: node YAMA admin-only ptrace + container default caps → all proot calls EPERM (node-dependent: UCSC scope 2 vs fullerton/local scope 0/1)
+- Fix: pod `SYS_PTRACE` capability + in-image proot wrapper (scope-2 → sudo route, guest-root with exit-time ownership normalization, scope-3 clear error)
+- Pins: proot-apps 0.4.0 (was floating — silent 0.3.2→0.4.0 drift), python-xlib 0.33 (upstream fork repo deleted — build-breaking 404)
+- E2E on the previously-failing node: blender install → launcher → Blender 5.2.1 LTS with **Cycles CUDA on GTX 1080 Ti** (nvidia_binds GPU passthrough unlocked); clean exit
+- PR #25 merged (`e38aa7b`); image `:papps-fix`; F79
+- See: [180918_proot-apps-yama-scope2.md](./180918_proot-apps-yama-scope2.md)
+
 ### 2026-09-09: M3 GPU desktop rendering (Xorg + NVIDIA DDX + NVENC)
 - 3 container hurdles resolved: VT fatal (fakevt.so), MIT-SHM cross-user (session-user Xorg), NVENC activation (SELKIES_AUTO_GPU)
 - Performance baseline: server p50=31ms, E2E ~60ms, NVENC 3ms/frame

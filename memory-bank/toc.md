@@ -1,7 +1,7 @@
 # Memory Bank — Table of Contents
 
 **Project**: `slu-docker-rhel-selkies` (SLU fork of linuxserver/docker-baseimage-selkies)
-**MB Version**: 2026-08 | **Last Updated**: 2026-09-08
+**MB Version**: 2026-09 | **Last Updated**: 2026-09-18
 
 ## GH Tracking (issues + project board)
 
@@ -17,7 +17,7 @@ All milestones and roadmap items are GitHub issues on `dGilli/docker-baseimage-s
 |---|-------|------|-------------|--------------|
 | 4 | open · Done | enhancement | GPU desktop rendering (M3) | `activeContext.md` M3 task; F75 (fakevt shim); branch `feat/m3-gpu-xorg-ddx` |
 | 5 | open · Todo | enhancement | CLI/UX workstation lifecycle | `productContext.md` roadmap §2 |
-| 6 | open · Todo | bug | selkies menu/app installer fix | `productContext.md` roadmap §3; R1 (F53–F56) |
+| 6 | closed · Done | bug | selkies menu/app installer fix | `tasks/2026-09/180918_proot-apps-yama-scope2.md`; F79 (YAMA scope-2 + wrapper + pins); R1 (F53–F56) |
 | 7 | open · Todo | process | fork maintenance workflow | `productContext.md` roadmap §4; `decisions.md` baseline ADR |
 | 8 | open · Todo | enhancement | SLU image registry + release | `productContext.md` roadmap §5; F30/F66; `build-deployment.md` |
 | 9 | open · Todo | documentation | docs expansion | `productContext.md` roadmap §6 |
@@ -49,7 +49,7 @@ All milestones and roadmap items are GitHub issues on `dGilli/docker-baseimage-s
 |------|---------|-----------|
 | [projectRules.md](./projectRules.md) | Coding standards, generated-file rules | When uncertain |
 | [decisions.md](./decisions.md) | ADRs | Arch decisions |
-| [findings.md](./findings.md) | Cross-cutting findings registry (F01–F66, evidence-linked) | RHEL9 work, debugging, GPU/NRP |
+| [findings.md](./findings.md) | Cross-cutting findings registry (F01–F79, evidence-linked) | RHEL9 work, debugging, GPU/NRP, proot-apps |
 | [quick-start.md](./quick-start.md) | Common commands, build/run/test | Fast track |
 | [build-deployment.md](./build-deployment.md) | Build/deploy/Jenkins flow | Build work |
 | [testing-patterns.md](./testing-patterns.md) | QA strategy, CI env vars | Test work |
@@ -59,6 +59,7 @@ All milestones and roadmap items are GitHub issues on `dGilli/docker-baseimage-s
 |------|---------|
 | [tasks/2026-08/README.md](./tasks/2026-08/README.md) | Monthly summary |
 | [tasks/2026-09/README.md](./tasks/2026-09/README.md) | Monthly summary |
+| [tasks/2026-09/180918_proot-apps-yama-scope2.md](./tasks/2026-09/180918_proot-apps-yama-scope2.md) | GH #6 installer regression: YAMA ptrace_scope=2 root cause + fix (SYS_PTRACE cap + proot wrapper), proot-apps/python-xlib pins, blender Cycles-CUDA E2E (F79) |
 | [tasks/2026-09/010901_reconcile-f44-baseline.md](./tasks/2026-09/010901_reconcile-f44-baseline.md) | Reconcile rhel9-dev MVP onto upstream/fedora44: curated series, 17-row resolution table, F67 fix, delta budget, sync workflow (F67–F73) |
 | [tasks/2026-09/reconcile-delta-reference.patch](./tasks/2026-09/reconcile-delta-reference.patch) | Re-derivation checklist: our shared-file modifications vs the old master baseline (sync-time reference) |
 | [tasks/2026-08/270827_rhel9-vetting-plan-v4.md](./tasks/2026-08/270827_rhel9-vetting-plan-v4.md) | PLAN v3 vetting evidence + defect log (D1–D6) + PLAN v4 delta |
