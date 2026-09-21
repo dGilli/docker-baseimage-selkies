@@ -8,6 +8,7 @@
 - Pins: proot-apps 0.4.0 (was floating — silent 0.3.2→0.4.0 drift), python-xlib 0.33 (upstream fork repo deleted — build-breaking 404)
 - E2E on the previously-failing node: blender install → launcher → Blender 5.2.1 LTS with **Cycles CUDA on GTX 1080 Ti** (nvidia_binds GPU passthrough unlocked); clean exit
 - PR #25 merged (`e38aa7b`); image `:papps-fix`; F79
+- Production pin bumped to `v6-llvmpipe` = `10c646b392e2` (2026-09-21, user-approved); deploy defaults now use the fixed image
 - See: [180918_proot-apps-yama-scope2.md](./180918_proot-apps-yama-scope2.md)
 
 ### 2026-09-09: M3 GPU desktop rendering (Xorg + NVIDIA DDX + NVENC)

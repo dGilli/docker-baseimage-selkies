@@ -1,6 +1,6 @@
 # =============================================================================
 # NRP PRODUCTION template — SLU RHEL9 selkies desktop (GNOME + SLU wallpaper +
-# proot-apps), branch rhel9, image c8.
+# proot-apps), branch rhel9, production pin v6-llvmpipe.
 #
 # Conventions modeled on the NRP desktop-workspace pattern (reference: the
 # earlier slu-nrp-k8s-vm attempt — selkies-rhel9.yaml.template + nrp-workspace
@@ -11,9 +11,9 @@
 #
 # IMAGE
 #   docker.io/dgilli/selkies-rhel9 — PRIVATE repo. Production pin:
-#     v5-llvmpipe (manifest sha256:6b9ee56628b7ee30d857cd16cf87ac46bf59ffe4ffce08523c8f31b67ae40e26,
-#     image c9 = a4e303101691, includes the svc-dbus restore; supersedes
-#     v4-llvmpipe = c8). :latest tracks dev.
+#     v6-llvmpipe (manifest sha256:2f57945b9171eee10682c750a85bb59b0b902a70b10487f41d8792e9dcb07ddd,
+#     image 10c646b392e2, includes the GH #6 YAMA ptrace_scope=2 proot-apps
+#     fix — F79; supersedes v5-llvmpipe = c9). :latest tracks dev.
 #   NRP namespace needs:
 #     kubectl -n <ns> create secret docker-registry dockerhub-dgilli \
 #       --docker-server=https://index.docker.io/v1/ \
