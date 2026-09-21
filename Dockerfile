@@ -392,7 +392,7 @@ RUN \
 
 RUN \
   echo "**** package provenance ****" && \
-  dnf repoquery --installed --qf '%{name}|%{version}|%{reponame}' | sort > /etc/package_provenance_rhel9.txt && \
+  dnf repoquery --installed --qf '%{name}|%{version}|%{reponame}' | sort > /etc/package_provenance.txt && \
   echo "**** cleanup ****" && \
   dnf clean all && \
   rm -rf \

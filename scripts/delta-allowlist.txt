@@ -8,7 +8,8 @@
 #                          same PR; this file's git history IS the delta audit.
 #   - [intentionally-absent] baseline files we deliberately do not ship.
 #   - [generated]          never hand-edit; always take baseline verbatim.
-#                          (README/Jenkinsfile/package_versions are bot-maintained.)
+#                          (README/Jenkinsfile are bot-maintained. package_versions.txt
+#                          is branch-owned per-branch content — see [modified].)
 #
 # Guard predicate rule: predicates must be content-based
 # (/etc/redhat-release, file-exists, binary-exists). 'dnf' is NOT a
@@ -43,6 +44,18 @@ root/etc/s6-overlay/s6-rc.d/svc-xorg/run
 # the socket appears instantly so the loop exits on the first iteration (no-op).
 root/etc/s6-overlay/s6-rc.d/svc-selkies/run
 root/selkies-proot
+# package_versions.txt: WHOLE-FILE OWNERSHIP (like Dockerfile — a flat data
+# file cannot be distro-guarded). Upstream's model is one-branch-per-variant
+# and every variant branch carries its own package_versions.txt describing
+# ITS image (their Jenkins bot maintains it; on this fork it is regenerated
+# from the built RHEL9 image — memory-bank/testing-patterns.md). The rhel9
+# image is RHEL9, so the baseline fedora44 list at this path is wrong data,
+# and nothing on this fork bot-regenerates it (local podman builds, no LS
+# Jenkins) — "take baseline verbatim" would preserve it forever. PR #27
+# (2026-09-21) replaced it with the RHEL9 list (renamed from the additive
+# package_versions_rhel9.txt) and moved it here from [generated]; this
+# file's git history is the delta audit.
+package_versions.txt
 
 # Intentionally absent:
 #   Dockerfile.aarch64 — deleted 2026-09-01 (user decision): a fedora arm64
@@ -63,7 +76,6 @@ Dockerfile.aarch64
 [generated]
 Jenkinsfile
 README.md
-package_versions.txt
 jenkins-vars.yml
 .github/workflows/external_trigger.yml
 .github/workflows/greetings.yml

@@ -58,4 +58,4 @@ Checks that matter:
 | CI vars | `jenkins-vars.yml` (+ generated `Jenkinsfile`) |
 | README source | `readme-vars.yml` |
 | Patches | `labwc-ipc.patch`, `pixman-patch/pass.c` |
-| Package inventory | `package_versions.txt` (Debian), `package_versions_rhel9.txt` (RHEL9) |
+| Package inventory | `package_versions.txt` (per-branch: Debian on master, RHEL9 on rhel9) |
