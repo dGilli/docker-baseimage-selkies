@@ -1,7 +1,7 @@
 # Memory Bank — Table of Contents
 
 **Project**: `slu-docker-rhel-selkies` (SLU fork of linuxserver/docker-baseimage-selkies)
-**MB Version**: 2026-09 | **Last Updated**: 2026-09-18
+**MB Version**: 2026-09 | **Last Updated**: 2026-09-21
 
 ## GH Tracking (issues + project board)
 
