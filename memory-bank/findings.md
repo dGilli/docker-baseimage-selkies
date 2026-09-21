@@ -696,7 +696,7 @@ E2E (user-observed): ~60ms = 31ms server + 15ms network (WebSocket) + 14ms clien
 
 **Limitations**: scope-3 nodes (tracing fully disabled) have no in-container workaround (clear error; none observed in the fleet); hardened image (no sudo) cannot use the scope-2 path (clear error); concurrent installs of the same app race — two `dl_layer` tar extracts into one dir → `tar: Cannot stat` (observed once: operator in-pod install vs user's browser install at the same time; the `DOWNLOADING` marker is not a lock; loser re-downloads, state converges).
 
-**Status**: ✅ fixed + merged (PR #25 → `e38aa7b`) + E2E-verified on a scope-2 node 2026-09-18 (user browser: install → launcher → Cycles CUDA render).
+**Status**: ✅ fixed + merged (PR #25 → `e38aa7b`) + E2E-verified on a scope-2 node 2026-09-18 (user browser: install → launcher → Cycles CUDA render) + production-pinned 2026-09-21 as **`v6-llvmpipe`** = `10c646b392e2` (registry manifest `sha256:2f57945b…`; deploy defaults updated).
 **Evidence**: PR #25 diff; /tmp/opencode/{papps-qa.png, smoke-final.png, blender-live.png, papps/{032,040,050}}; NRP pod `slu-rhel9-e2e-6b48d56875-7l6zw` (fiona8-0.calit2.uci.edu); nvidia-smi compute-apps 1726 MiB allocation.
 
 ---

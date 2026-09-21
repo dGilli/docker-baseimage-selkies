@@ -9,7 +9,9 @@ GH #6 regression: "the proot app installer from selkies is not working again —
 - ✅ **Live E2E on the previously-failing node** (fiona8-0, scope 2, GTX 1080 Ti): user browser — install blender (2.3 GB) → `blender-pa.desktop` in launcher + Desktop (abc-owned) → launch → **Blender 5.2.1 LTS, Cycles CUDA device = GTX 1080 Ti, 1726 MiB render allocation** (bonus: proot-apps 0.4.0 `nvidia_binds` GPU passthrough now works) → close → clean teardown (0 chain, GPU released, 0 root-owned files).
 - ✅ Local regression: filezilla install/run/render via the full dashboard chain on scope 0 (R1 behavior preserved, bwrap stub intact); forced scope-2 (sudo branch + ownership normalization incl. SIGKILL self-heal) and scope-3 (clean error) branch matrix.
 - ✅ Supply-chain pins: proot-apps **0.4.0** (was floating `releases/latest` — had silently moved 0.3.2→0.4.0; 0.5.0 untested), `python-xlib` **0.33** (selkies 348bc4f's git dep repo was deleted upstream — build-breaking 404 found mid-task; PyPI 0.33 is byte-identical to the fork's vendored copy).
-- ⏳ Open user decisions: production pin bump (`v5-llvmpipe`=c9 is pre-fix; user is running `:papps-fix`) · proot-apps 0.5.0 evaluation (separate task) · GH #6 closure + board sync.
+- ✅ Production pin resolved 2026-09-21: `v6-llvmpipe` = `10c646b392e2` (registry manifest `sha256:2f57945b…`), deploy defaults updated; `v5-llvmpipe` retained for one-step rollback.
+- ✅ GH #6 closed + project board synced to Done (2026-09-18).
+- ⏳ Open follow-on: proot-apps 0.5.0 evaluation (separate task).
 
 ## Files Modified
 - `deploy/nrp/selkies-rhel9.yaml.template` — container `securityContext.capabilities.add: [SYS_PTRACE]` (minimal; PSA-unlabeled ns verified) + header docs (YAMA finding, F55 seccomp-only caveat)
@@ -34,7 +36,8 @@ GH #6 regression: "the proot app installer from selkies is not working again —
 
 ## Artifacts
 - PR: https://github.com/dGilli/docker-baseimage-selkies/pull/25 (squash-merged `e38aa7b`)
-- Image: `docker.io/dgilli/selkies-rhel9:papps-fix` = `10c646b392e2` (+ `:latest`); production pin still `v5-llvmpipe` (c9) pending user decision
+- Image: `docker.io/dgilli/selkies-rhel9:papps-fix` = `10c646b392e2` (+ `:latest`)
+- Production pin: **`v6-llvmpipe`** = `10c646b392e2` (registry manifest `sha256:2f57945b9171eee10682c750a85bb59b0b902a70b10487f41d8792e9dcb07ddd`), pushed 2026-09-21 per user approval; `v5-llvmpipe` (c9) retained for rollback
 - Live pod: `slu-rhel9-e2e-6b48d56875-7l6zw` (fiona8-0.calit2.uci.edu, GTX 1080 Ti 580.159.04, Xorg+NVIDIA DDX)
 - Evidence: /tmp/opencode/{papps-qa.png (scope-0 filezilla), smoke-final.png (final-build filezilla), blender-live.png (Blender 5.2.1 + Cycles CUDA device dialog), papps/{032,040,050} (proot-apps tarballs + diffs)}
 - Findings: F79 (full record); related: F53 (dashboard badge cosmetic), F54/F56 (bwrap stub, R1 facts), F55 (seccomp-only ptrace assumption), F57 (emptyDir /config)

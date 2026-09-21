@@ -17,7 +17,7 @@ podman build -t dgilli/baseimage-selkies:rhel9-p1-gnome .
 podman tag dgilli/baseimage-selkies:rhel9-p1-gnome docker.io/dgilli/selkies-rhel9:latest
 podman push docker.io/dgilli/selkies-rhel9:latest    # OCI manifest; pin by registry digest
 ```
-Current: c9 `a4e303101691` (reconciled f44 baseline; GNOME default desktop + SLU wallpaper + R1 proot-apps + svc-dbus restore; production pin `v5-llvmpipe`). Build/verify history: `tasks/2026-08/270827_rhel9-build.md`, `280828_rhel9-gnome-desktop.md`, `280828_r1-proot-apps.md`.
+Current: `10c646b392e2` (reconciled f44 baseline; GNOME default desktop + SLU wallpaper + R1 proot-apps + svc-dbus restore + GH #6 YAMA/proot-apps fix; production pin `v6-llvmpipe`). Build/verify history: `tasks/2026-08/270827_rhel9-build.md`, `280828_rhel9-gnome-desktop.md`, `280828_r1-proot-apps.md`.
 
 ## Run / smoke test
 ```bash
