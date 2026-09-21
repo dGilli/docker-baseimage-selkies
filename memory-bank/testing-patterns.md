@@ -24,7 +24,7 @@ There is **no unit test suite** in this repo — the product is a Docker image. 
 - Xvfb: `COPY --from=xvfb / /` trick is Debian-image-specific; RHEL9 uses stock dnf Xvfb → **no `-vfbdevice` support → `DISABLE_DRI3=true` mandatory** (D5); test `--device /dev/dri/renderD128` → Xvfb must stay up
 - `dbus-launch` needs `dbus-x11` on EL9 (D2); smoke-test `dbus-daemon --system` running as abc
 - v4 negative matrix: `--privileged` (svc-docker guard, no flapping) | `HARDEN_DESKTOP=true` (sudoers sed round-trip, xdg/exo chmod) | `PIXELFLUX_WAYLAND=true` (documented wait-forever, no labwc phase 1) | `LC_ALL=de_DE.UTF-8` | `DEV_MODE=pixelflux` gate message
-- provenance: capture `dnf repoquery --installed --qf '%{name}|%{version}|%{reponame}'` into `package_versions_rhel9.txt` (RHEL vs EPEL evidence)
+- provenance: capture `dnf repoquery --installed --qf '%{name}|%{version}|%{reponame}'` into `/etc/package_provenance.txt`; regenerate repo `package_versions.txt` from the built image (RHEL vs EPEL evidence)
 
 ## Determinism
 - Builds fetch "latest release" artifacts (pelorus, proot-apps, themes) — record resulting versions in the variant's `package_versions.txt` for reproducibility audits.
