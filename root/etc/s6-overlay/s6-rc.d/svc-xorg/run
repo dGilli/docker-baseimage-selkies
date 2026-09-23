@@ -8,6 +8,95 @@ fi
 # Cleanup
 rm -f /tmp/.X1-lock
 
+# M3 (SLU rhel9 fork addition): real X.Org + NVIDIA DDX path.
+#
+# Two container-specific hurdles are solved here:
+# 1. VT: RHEL9 X 1.20.11 xf86OpenConsole() makes VT ioctls fatal (unlike
+#    upstream -keeptty or X 21+). fakevt.so LD_PRELOAD intercepts them.
+# 2. User: Xorg must run as the session user (abc), NOT root. Pixelflux
+#    captures via MIT-SHM (SysV shmat); X 1.20 denies cross-user attach
+#    (BadAccess). Running Xorg as abc makes shmat same-user → success.
+#    Matches selkies-project/docker-selkies-glx-desktop: "The X server
+#    runs as the session user, sharing a virtual terminal it never
+#    switches to."
+#
+# Guard (per projectRules guard-predicate rule): env-marker + file-exists.
+# On upstream fedora44 nothing sets XSERVER_BACKEND and /usr/local/bin/
+# selu-xorg-config does not exist — the block is a no-op there. When the
+# opt-in is set but the config script exits non-zero (no GPU, download
+# failure, etc.), we fall through to the Xvfb path below unchanged
+# (preserves M2 behavior). See memory-bank F58 + 2026-08-31 ADR.
+if [ "${XSERVER_BACKEND:-}" = "nvidia-xorg" ] \
+   && [ -x /usr/local/bin/selu-xorg-config ] \
+   && [ -x /usr/libexec/Xorg ] \
+   && [ -x /usr/local/lib/fakevt.so ]; then
+  if DRIVER="$(/usr/local/bin/selu-xorg-config 2>/tmp/selu-xorg-config.log)"; then
+    echo "[svc-xorg] M3 Xorg path: driver=${DRIVER} (see /tmp/selu-xorg-config.log)"
+    # Zink / Mesa software-GL env belongs to the applications in the session
+    # when the display server is Xvfb. With the vendor's DDX in charge, the
+    # Mesa loader is bypassed; stripping the env here keeps `glxinfo` output
+    # honest (renderer = NVIDIA, not llvmpipe) and prevents the DE from
+    # accidentally re-entering a Mesa path if it queries env directly.
+    unset GALLIUM_DRIVER MESA_LOADER_DRIVER_OVERRIDE LIBGL_KOPPER_DRI2 \
+          LIBGL_ALWAYS_SOFTWARE MESA_GL_VERSION_OVERRIDE DISABLE_DRI3
+    # A crashed Xorg leaves its lock + socket; the replacement would refuse
+    # the same DISPLAY number without this cleanup.
+    DISPLAY_NUM="${DISPLAY#:}"
+    DISPLAY_NUM="${DISPLAY_NUM%%.*}"
+    if [ -n "${DISPLAY_NUM}" ] && ! pgrep -f "Xorg ${DISPLAY}( |$)" >/dev/null 2>&1; then
+      rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
+    fi
+    # X creates these dirs only as root. This container is rootful (F28).
+    mkdir -pm1777 /tmp/.X11-unix /tmp/.ICE-unix 2>/dev/null || true
+    # Ensure the session user can access the GPU DRI nodes (Xorg runs as
+    # abc so that MIT-SHM capture by pixelflux (also abc) succeeds —
+    # cross-user shmat is denied by X 1.20).
+    for grp in $(stat -c "%G" /dev/dri/card* /dev/dri/renderD* 2>/dev/null | sort -u); do
+      id -nG abc 2>/dev/null | grep -qw "$grp" || usermod -aG "$grp" abc 2>/dev/null || true
+    done
+    # Run the server in the background AS THE SESSION USER (abc) so that
+    # pixelflux MIT-SHM capture works (same-user shmat). LD_PRELOAD
+    # fakevt.so intercepts the VT ioctls that X 1.20 makes fatal in
+    # containers.
+    # -ac: no X access control (nginx provides auth)
+    # -nolisten tcp: Unix socket only
+    # -s 0: no screensaver
+    # -dpms: disable power management (headless)
+    su abc -s /bin/bash -c \
+      "LD_PRELOAD=/usr/local/lib/fakevt.so \
+       /usr/libexec/Xorg ${DISPLAY} \
+       -noreset -ac -nolisten tcp -s 0 -dpms \
+       +extension COMPOSITE +extension DAMAGE +extension GLX +extension RANDR \
+       +extension RENDER +extension MIT-SHM +extension XFIXES +extension XTEST \
+       -config /etc/X11/xorg.conf -logfile /tmp/Xorg.log" &
+    XORG_PID=$!
+    trap 'kill "${XORG_PID}" 2>/dev/null || true' TERM INT
+    READY=false
+    for _ in $(seq 1 30); do
+      if ! kill -0 "${XORG_PID}" 2>/dev/null; then
+        echo "[svc-xorg] M3 Xorg died during startup (see /tmp/Xorg.log)" >&2
+        exit 1
+      fi
+      if su abc -s /bin/bash -c "timeout 2 xdpyinfo -display ${DISPLAY}" >/dev/null 2>&1; then
+        READY=true; break
+      fi
+      sleep 1
+    done
+    if [ "${READY}" != "true" ]; then
+      echo "[svc-xorg] M3 Xorg did not answer within 30s; killing (see /tmp/Xorg.log)" >&2
+      kill -9 "${XORG_PID}" 2>/dev/null || true
+      wait "${XORG_PID}" 2>/dev/null || true
+      exit 1
+    fi
+    echo "[svc-xorg] M3 Xorg ${DISPLAY} is serving clients on the ${DRIVER} driver"
+    wait "${XORG_PID}"
+    exit $?
+  else
+    echo "[svc-xorg] M3: selu-xorg-config declined, falling back to Xvfb"
+    cat /tmp/selu-xorg-config.log >&2 || true
+  fi
+fi
+
 # Enable DRI3 support if detected
 VFBCOMMAND=""
 if ! which nvidia-smi && [ -e "/dev/dri/renderD128" ]; then

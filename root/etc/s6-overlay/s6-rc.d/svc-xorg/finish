@@ -1,0 +1,10 @@
+#!/usr/bin/with-contenv bash
+
+# s6 respawn backoff for svc-xorg.
+#
+# On the M3 Xorg path, a config that Xorg itself refuses (driver ABI mismatch,
+# bad BusID, etc.) would otherwise respawn at full speed and starve every
+# other longrun service. Two seconds per cycle keeps one failing service a
+# local failure. The Xvfb fallback path has never crashed-looped in practice,
+# so this only helps M3 — but it runs identically for both.
+sleep 2

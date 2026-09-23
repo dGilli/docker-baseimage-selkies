@@ -40,6 +40,12 @@ mkdir -p "$HOME/.XDG"
 chown abc:abc "$HOME/.XDG"
 printf "$HOME/.XDG" > /run/s6/container_environment/XDG_RUNTIME_DIR
 
+# cache dir: base init hooks (e.g. init-mods-package-install) run as root with
+# HOME=/config and can leave a root-owned $HOME/.cache behind; user apps
+# (GNOME) must own it to write (F49)
+mkdir -p "$HOME/.cache"
+chown -R abc:abc "$HOME/.cache"
+
 # Clean out pulseaudio locks
 rm -f /defaults/pid /defaults/native
 
@@ -251,8 +257,9 @@ else
   fi
 fi
 
-# add proot-apps
+# add proot-apps (variant guard: /proot-apps not shipped in all variants)
 proot_updated=false
+if [ -d /proot-apps ]; then
 if [ ! -f "$HOME/.local/bin/proot-apps" ]; then
   mkdir -p "$HOME/.local/bin/"
   cp /proot-apps/* "$HOME/.local/bin/"
@@ -262,9 +269,103 @@ elif ! diff -q /proot-apps/pversion "$HOME/.local/bin/pversion" > /dev/null; the
   cp /proot-apps/* "$HOME/.local/bin/"
   proot_updated=true
 fi
+fi
 if [ "$proot_updated" = true ]; then
     chown -R abc:abc "$HOME/.local"
     [ -f "$HOME/.bashrc" ] && chown abc:abc "$HOME/.bashrc"
+fi
+
+# proot ptrace wrapper (GH #6): nodes with kernel YAMA ptrace_scope=2
+# (admin-only) deny ptrace to processes without CAP_SYS_PTRACE. The
+# container default cap set lacks it and the callers run as abc
+# (CapEff=0), so proot fails with `ptrace(TRACEME): Operation not
+# permitted` — the app rootfs downloads fine, but the guest /install and
+# run die (app never shows up). The NRP deployment grants the container
+# CAP_SYS_PTRACE (securityContext.capabilities); this wrapper routes
+# proot through sudo on scope-2 nodes so the proot child holds the cap
+# at the PTRACE_TRACEME check. NOTE: the shipped proot build (2023)
+# has no -u/-g options, so on scope-2 nodes the guest app runs as root
+# inside the chroot. proot also auto-binds $HOME into the guest (that
+# is how the guest /install drops menu entries into the host GNOME
+# home — the R1 "app dash entry"), so guest-root writes can land in
+# the host /config; the wrapper chowns the touched paths back to abc
+# on guest exit (see below). scope 0/1 nodes (local podman, most NRP
+# nodes) take the direct path unchanged (guest runs as the caller).
+# File capabilities are not an option: AppArmor nodes deny exec of
+# file-capable binaries (tested 2026-09-18). Re-wrapped after every
+# bootstrap copy, including the pversion-change re-copy.
+if [ -d /proot-apps ] && [ -f "$HOME/.local/bin/proot" ]; then
+  PROOT_BIN="$HOME/.local/bin/proot"
+  PROOT_REAL="$HOME/.local/bin/proot-real"
+  # If the current file is the real binary (fresh install or re-copy),
+  # move it aside; if it is already our wrapper (reboot, no re-copy),
+  # proot-real is already in place.
+  if ! head -c 2 "$PROOT_BIN" | grep -q '^#!'; then
+    mv -f "$PROOT_BIN" "$PROOT_REAL"
+  fi
+  cat > "$PROOT_BIN" <<'PROOT_WRAPPER'
+#!/usr/bin/with-contenv bash
+# proot-ptrace-wrapper — YAMA ptrace_scope routing (GH #6). See
+# init-selkies-config/run for the full rationale.
+SCOPE=$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)
+PROOT_REAL="$(dirname "$0")/proot-real"
+case "${SCOPE}" in
+  3)
+    echo "proot: node YAMA ptrace_scope=3 disables ptrace entirely; proot apps cannot run here (no in-container workaround)" >&2
+    exit 1
+    ;;
+  2)
+    # Guest runs as root inside the chroot (the shipped proot build has
+    # no -u/-g options). proot auto-binds $HOME into the guest, so the
+    # guest's ~ writes (the /install menu entries, app data) land in the
+    # HOST /config — root-owned. Normalize ownership on guest exit:
+    # the rootfs (ROOTFS = the -R/-r arg; proot-apps' later `rm -Rf` for
+    # update/remove runs as abc) + the host-home write targets.
+    ROOTFS=""
+    prev=""
+    for a in "$@"; do
+      case "${prev}" in -R|-r) ROOTFS="${a}" ;; esac
+      prev="${a}"
+    done
+    normalize_owner() {
+      [ -n "${ROOTFS}" ] && chown -R abc:abc "${ROOTFS}" 2>/dev/null
+      chown -R abc:abc /config/.local /config/Desktop /config/.config /config/.cache 2>/dev/null
+    }
+    if [ "$(id -u)" = 0 ]; then
+      rc=0
+      trap 'rc=130; normalize_owner; exit "${rc}"' TERM INT
+      "$PROOT_REAL" "$@" || rc=$?
+      normalize_owner
+      exit "${rc}"
+    elif sudo -n true >/dev/null 2>&1; then
+      # root (via passwordless sudo) holds CAP_SYS_PTRACE through the
+      # PTRACE_TRACEME check; the sh -c also restores ownership on exit
+      # (normal return or TERM/INT trap; SIGKILL orphans self-heal on
+      # the next guest-root run)
+      exec sudo env \
+        DISPLAY="${DISPLAY:-}" \
+        XAUTHORITY="${XAUTHORITY:-}" \
+        HOME="${HOME:-}" \
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
+        PULSE_SERVER="${PULSE_SERVER:-}" \
+        PULSE_COOKIE="${PULSE_COOKIE:-}" \
+        WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+        USER="${USER:-abc}" \
+        LOGNAME="${LOGNAME:-abc}" \
+        sh -c 'RF="$2"; norm() { [ -n "$RF" ] && chown -R abc:abc "$RF" 2>/dev/null; chown -R abc:abc /config/.local /config/Desktop /config/.config /config/.cache 2>/dev/null; }; rc=0; trap "norm; exit 130" TERM INT; "$1" "${@:3}" || rc=$?; norm; exit $rc' \
+        sh "$PROOT_REAL" "$ROOTFS" "$@"
+    fi
+    echo "proot: node YAMA ptrace_scope=2 and no usable sudo; proot apps cannot run here (needs container capability SYS_PTRACE + passwordless sudo)" >&2
+    exit 1
+    ;;
+  *)
+    exec "$PROOT_REAL" "$@"
+    ;;
+esac
+PROOT_WRAPPER
+  chmod 0755 "$PROOT_BIN"
+  chown abc:abc "$PROOT_BIN" "$PROOT_REAL"
 fi
 
 # Enable gpu encode if device detected

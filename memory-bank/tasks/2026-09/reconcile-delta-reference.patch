@@ -1,0 +1,209 @@
+# Reconciliation delta reference — extracted 2026-09-01
+#
+# What: our modifications to UPSTREAM shared files in rhel9-dev, vs the master
+#       baseline (69f4fc9) it was built on. This is the re-derivation checklist
+#       for resolving the f44 merge (17 rows) and for ALL future upstream syncs.
+#
+# How to use: each hunk below must still be present (re-derived if f44 moved the
+#       context) in the reconciled tree, UNLESS the resolution table in the merge
+#       commit says otherwise (e.g. svc-selkies DEV_MODE gate is DROPPED because
+#       f44's DEV_MODE is already dnf-based).
+#
+# Guard rule: predicates must be content-based (/etc/redhat-release, file-exists,
+# binary-exists). 'dnf' is NOT a discriminator (present on f44 AND UBI9).
+#
+# NOTE: does not 'git apply' cleanly onto the f44 base — that is expected;
+# the 6 re-derivation files are resolved by hand against f44's versions.
+
+diff --git a/readme-vars.yml b/readme-vars.yml
+index d9885b9..c2a28ff 100644
+--- a/readme-vars.yml
++++ b/readme-vars.yml
+@@ -230,6 +230,7 @@ full_custom_readme: |
+   | Debian | debiantrixie |
+   | Fedora | fedora44 |
+   | Kali | kali |
++  | RHEL | rhel9 |
+   | Ubuntu | ubunturesolute |
+ 
+   **A `dev` tag is also available based on the latest Ubuntu and the head Selkies codebase for integration testing.**
+diff --git a/root/defaults/startwm.sh b/root/defaults/startwm.sh
+index a1cb9d1..3753719 100755
+--- a/root/defaults/startwm.sh
++++ b/root/defaults/startwm.sh
+@@ -8,4 +8,53 @@ if which nvidia-smi > /dev/null 2>&1 && ls -A /dev/dri 2>/dev/null && [ "${DISAB
+ fi
+ 
+ # Start DE
+-exec dbus-launch --exit-with-session /usr/bin/openbox-session > /dev/null 2>&1
++# Distro-aware (task 2, 2026-08-28): RHEL9 ships standard GNOME — boot
++# gnome-shell directly (NRP-proven pattern, findings F44/F47); on images
++# without gnome-shell (Debian/Fedora) this whole branch is a no-op and the
++# original openbox exec runs. Opt out on rhel9 with DESKTOP=openbox.
++if [ -x /usr/bin/gnome-shell ] && [ "${DESKTOP}" != "openbox" ]; then
++  export XDG_SESSION_TYPE=x11
++  export XDG_SESSION_ID="${DISPLAY#:}"
++  export XDG_CURRENT_DESKTOP=GNOME
++  export DESKTOP_SESSION=gnome
++  # fresh per-boot runtime dir: /config/.XDG is on the persistent volume and
++  # would keep a stale dbus socket across container restarts (F48); NRP uses
++  # the same pattern (their Dockerfile:40)
++  export XDG_RUNTIME_DIR=/tmp/runtime-abc
++  mkdir -p "$XDG_RUNTIME_DIR" && chmod 0700 "$XDG_RUNTIME_DIR"
++  xsetroot -solid "#2d2d2d" 2>/dev/null || true
++  # wait for GLX readiness (mutter composites via software GL)
++  for i in $(seq 1 30); do
++    glxinfo 2>/dev/null | grep -q "OpenGL renderer string" && break
++    sleep 1
++  done
++  # session bus on a deterministic socket: dbus-run-session honors neither
++  # XDG_RUNTIME_DIR nor a fixed path on EL9 (falls back to a random /tmp
++  # socket from the default session.conf), which gnome-shell and
++  # user-launched apps cannot discover
++  dbus-daemon --session --nofork --address="unix:path=$XDG_RUNTIME_DIR/bus" &
++  DBUS_PID=$!
++  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
++  for i in $(seq 1 50); do
++    [ -S "$XDG_RUNTIME_DIR/bus" ] && break
++    sleep 0.2
++  done
++  # SLU wallpaper (user-provided, 2026-08-28): point GNOME's background schema
++  # at the bundled image. gnome-shell's background actor reads these keys;
++  # gsettings writes land in the dconf user DB under /config and are
++  # re-applied idempotently on every boot.
++  gsettings set org.gnome.desktop.background picture-uri "file:///usr/share/backgrounds/slu-rhel.jpg" 2>/dev/null || true
++  gsettings set org.gnome.desktop.background picture-uri-dark "file:///usr/share/backgrounds/slu-rhel.jpg" 2>/dev/null || true
++  # NOTE: RHEL9/GNOME40 enum values differ from Fedora naming (spanned, not span)
++  gsettings set org.gnome.desktop.background picture-options "spanned" 2>/dev/null || true
++  /usr/bin/gnome-shell --x11 --sm-disable &
++  GNOME_PID=$!
++  # No auto-apps under GNOME (user decision 2026-08-28): clean desktop,
++  # apps launched from the GNOME app grid. openbox mode (DESKTOP=openbox)
++  # keeps the LSIO autostart + RESTART_APP contract (svc-watchdog pgreps
++  # the `sh ~/.config/openbox/autostart` process).
++  wait "$GNOME_PID"
++  kill "$DBUS_PID" 2>/dev/null || true
++else
++  exec dbus-launch --exit-with-session /usr/bin/openbox-session > /dev/null 2>&1
++fi
+diff --git a/root/etc/s6-overlay/s6-rc.d/init-nginx/run b/root/etc/s6-overlay/s6-rc.d/init-nginx/run
+index 161c802..184d8a8 100755
+--- a/root/etc/s6-overlay/s6-rc.d/init-nginx/run
++++ b/root/etc/s6-overlay/s6-rc.d/init-nginx/run
+@@ -1,7 +1,12 @@
+ #!/usr/bin/with-contenv bash
+ 
+-# nginx Path
+-NGINX_CONFIG=/etc/nginx/sites-available/default
++# nginx Path (distro-aware: Debian ships sites-available, EL ships conf.d)
++if [ -d /etc/nginx/sites-available ]; then
++  NGINX_CONFIG=/etc/nginx/sites-available/default
++else
++  mkdir -p /etc/nginx/conf.d
++  NGINX_CONFIG=/etc/nginx/conf.d/default.conf
++fi
+ 
+ # user passed env vars
+ CPORT="${CUSTOM_PORT:-3000}"
+diff --git a/root/etc/s6-overlay/s6-rc.d/init-selkies-config/run b/root/etc/s6-overlay/s6-rc.d/init-selkies-config/run
+index e63e368..7806673 100755
+--- a/root/etc/s6-overlay/s6-rc.d/init-selkies-config/run
++++ b/root/etc/s6-overlay/s6-rc.d/init-selkies-config/run
+@@ -40,6 +40,12 @@ mkdir -p "$HOME/.XDG"
+ chown abc:abc "$HOME/.XDG"
+ printf "$HOME/.XDG" > /run/s6/container_environment/XDG_RUNTIME_DIR
+ 
++# cache dir: base init hooks (e.g. init-mods-package-install) run as root with
++# HOME=/config and can leave a root-owned $HOME/.cache behind; user apps
++# (GNOME) must own it to write (F49)
++mkdir -p "$HOME/.cache"
++chown -R abc:abc "$HOME/.cache"
++
+ # Clean out pulseaudio locks
+ rm -f /defaults/pid /defaults/native
+ 
+@@ -251,8 +257,9 @@ else
+   fi
+ fi
+ 
+-# add proot-apps
++# add proot-apps (variant guard: /proot-apps not shipped in all variants)
+ proot_updated=false
++if [ -d /proot-apps ]; then
+ if [ ! -f "$HOME/.local/bin/proot-apps" ]; then
+   mkdir -p "$HOME/.local/bin/"
+   cp /proot-apps/* "$HOME/.local/bin/"
+@@ -262,6 +269,7 @@ elif ! diff -q /proot-apps/pversion "$HOME/.local/bin/pversion" > /dev/null; the
+   cp /proot-apps/* "$HOME/.local/bin/"
+   proot_updated=true
+ fi
++fi
+ if [ "$proot_updated" = true ]; then
+     chown -R abc:abc "$HOME/.local"
+     [ -f "$HOME/.bashrc" ] && chown abc:abc "$HOME/.bashrc"
+diff --git a/root/etc/s6-overlay/s6-rc.d/svc-docker/run b/root/etc/s6-overlay/s6-rc.d/svc-docker/run
+index 440c54b..10fe3e6 100755
+--- a/root/etc/s6-overlay/s6-rc.d/svc-docker/run
++++ b/root/etc/s6-overlay/s6-rc.d/svc-docker/run
+@@ -5,6 +5,10 @@
+ if [ -e /dev/cpu_dma_latency ]; then
+   if [ "${START_DOCKER,,}" == "true" ]; then
+     mount -t tmpfs none /tmp
++    if ! command -v dockerd >/dev/null 2>&1; then
++      echo "[ls.io-init] docker not installed on this variant (DinD deferred) - service idle"
++      sleep infinity
++    fi
+     exec /usr/local/bin/dockerd-entrypoint.sh -l error
+   else
+     sleep infinity
+diff --git a/root/etc/s6-overlay/s6-rc.d/svc-selkies/run b/root/etc/s6-overlay/s6-rc.d/svc-selkies/run
+index 0c473c5..394f57f 100755
+--- a/root/etc/s6-overlay/s6-rc.d/svc-selkies/run
++++ b/root/etc/s6-overlay/s6-rc.d/svc-selkies/run
+@@ -21,6 +21,11 @@ fi
+ 
+ # Setup dev mode if defined
+ if [ ! -z ${DEV_MODE+x} ]; then
++  # phase 1: DEV_MODE is Debian-only (apt-based); continue default boot elsewhere
++  . /etc/os-release
++  if [ "${ID}" != "debian" ]; then
++    echo "[ls.io-init] DEV_MODE not supported on ${ID} (phase 1) - continuing default boot"
++  else
+   # Dev deps
+   apt-get update
+   apt-get install -y \
+@@ -116,6 +121,7 @@ if [ ! -z ${DEV_MODE+x} ]; then
+       nodemon -V --ext py --watch . --exec \
+         "killall labwc || true; killall selkies-desktop || true; python3 -m selkies --addr='localhost' --mode='websockets' --debug='true'"
+   fi
++  fi
+ fi
+ 
+ # Start Selkies
+diff --git a/root/selkies-proot b/root/selkies-proot
+index d556535..15a7059 100755
+--- a/root/selkies-proot
++++ b/root/selkies-proot
+@@ -16,6 +16,22 @@ if [ -n "$XDG_RUNTIME_DIR" ]; then
+   done
+ fi
+ 
++# RHEL9 guard (F54): glycin apps (e.g. filezilla) bundle bwrap in their proot
++# rootfs; bwrap's user-namespace creation deadlocks inside proot's ptrace
++# emulation and glycin awaits the availability test with NO timeout. Stub
++# bwrap in every installed app rootfs so glycin receives the recognized
++# "No permissions" error and falls back to NotSandboxed (verified fix:
++# FileZilla window renders). Idempotent: re-applied on every /selkies-proot
++# invocation (re-extracts by `install`/`update` restore the real binary).
++if [ -f /etc/redhat-release ]; then
++  for bwrap in "$HOME"/proot-apps/*/usr/bin/bwrap "$HOME"/proot-apps/*/bin/bwrap; do
++    if [ -f "$bwrap" ]; then
++      printf '#!/bin/sh\necho "bwrap: No permissions to create a new namespace" >&2\nexit 1\n' > "$bwrap" && \
++      chmod 0755 "$bwrap"
++    fi
++  done
++fi
++
+ # Launch terminal proot action
+ if [ -n "$TARGET_WAYLAND_SOCKET" ]; then
+   export WAYLAND_DISPLAY="$TARGET_WAYLAND_SOCKET"
